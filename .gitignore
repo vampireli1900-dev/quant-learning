@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 虚拟环境 / 依赖
+.venv/
+venv/
+env/
+.conda/
+
+# 编辑器 / 系统
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 回测产物 / 本地数据
+*.csv
+*.pkl
