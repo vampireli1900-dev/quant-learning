@@ -291,6 +291,53 @@ table.tbl tbody tr.hl td:first-child{color:#fff; font-weight:600}
 }
 .loading-bar.on{opacity:1}
 
+/* ---------- 数据库视图 ---------- */
+.db-groups{display:flex; flex-direction:column; gap:2px; padding:2px 12px 14px}
+.db-group-title{
+  font-size:10.5px; color:var(--muted); letter-spacing:1.2px;
+  margin:12px 0 7px; text-transform:uppercase;
+}
+.db-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(154px,1fr)); gap:8px}
+.db-tbl{
+  background:var(--panel2); border:1px solid var(--border-soft); border-radius:7px;
+  padding:9px 11px; cursor:default; position:relative; overflow:hidden;
+  opacity:0; transform:translateY(8px);
+  animation:dbIn .42s var(--ease) forwards;
+  transition:border-color .18s var(--ease), transform .18s var(--ease);
+}
+.db-tbl:hover{border-color:#3a4360; transform:translateY(-2px)}
+@keyframes dbIn{to{opacity:1; transform:translateY(0)}}
+.db-tbl .n{font-size:11.5px; color:var(--text); font-family:Consolas,monospace}
+.db-tbl .r{
+  font-size:19px; font-weight:600; font-variant-numeric:tabular-nums;
+  margin-top:3px; color:#fff;
+}
+.db-tbl .r.empty{color:var(--muted)}
+.db-tbl .m{font-size:10.5px; color:var(--muted); margin-top:2px}
+.db-tbl .b{height:2px; background:var(--border); border-radius:2px; margin-top:8px; overflow:hidden}
+.db-tbl .b i{
+  display:block; height:100%; width:0; background:var(--accent);
+  transition:width .9s var(--ease);
+}
+.sql-editor{
+  display:block; width:calc(100% - 24px); margin:10px 12px 0; min-height:112px;
+  resize:vertical; background:var(--bg2); border:1px solid var(--border);
+  border-radius:6px; color:var(--text); padding:10px 12px;
+  font-family:Consolas,Monaco,monospace; font-size:12.5px; line-height:1.65;
+  outline:none; transition:border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.sql-editor:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+.er-box{padding:6px 12px 14px; overflow-x:auto}
+.er-box svg{width:100%; min-width:700px; height:auto}
+.er-box .er-box-node{fill:var(--panel2); stroke:var(--border); stroke-width:1.2}
+.er-box .er-node-hi{stroke:var(--accent); stroke-width:1.8}
+.er-box .er-t{font-size:12px; fill:#fff; font-family:Consolas,monospace}
+.er-box .er-s{font-size:10px; fill:var(--muted)}
+.er-flow{stroke:var(--accent); stroke-width:1.4; fill:none;
+  stroke-dasharray:6 6; animation:erFlow 1.5s linear infinite}
+@keyframes erFlow{to{stroke-dashoffset:-24}}
+.db-err{color:var(--up)}
+
 @media (max-width:1100px){
   .grid-3{grid-template-columns:repeat(2,1fr)}
   .sidebar{width:170px; flex:0 0 170px}

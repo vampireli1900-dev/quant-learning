@@ -194,7 +194,144 @@ print(mon.scan())                # 今日各模型信号与合计建议仓位
 
 ---
 
-## 七、环境与权限状态
+## 七、数据库系统（SQL 持久化）
+
+### 为什么需要
+
+回测跑完就只剩一堆 CSV，下次想问"哪个模型在美股科技股上最稳"就得重跑一遍。
+数据库的作用是把**每一次 API 抓取、每一次实验、每一笔委托**都沉淀成可查询的资产：
+
+| 需求 | 用文件很难 | 用 SQL 很简单 |
+|------|-----------|--------------|
+| 这个标的库里有多少根 K 线、覆盖哪段时间 | 翻文件名 | `SELECT COUNT(*), MIN(ts), MAX(ts) FROM bars GROUP BY ...` |
+| 哪些模型的 DSR 超过 0.95 | 开一堆 CSV 手工比 | `WHERE dsr > 0.95 ORDER BY dsr DESC` |
+| 上个月一共下了几笔单、成交均价多少 | 翻日志 | `SELECT ... FROM orders WHERE ts BETWEEN ...` |
+| 换台机器还能复现实验 | 复制整个目录 | 拷一个 .db 文件 |
+
+### 表结构（14 张表，5 层）
+
+```
+【行情层 · API 抓取】
+  assets        标的主数据（symbol 唯一）
+  bars          OHLCV 行情，UNIQUE(asset_id, bar_size, ts) —— 幂等增量
+  ingest_log    每次调 API 的审计日志（行数/耗时/成功失败）
+
+【特征层 · 训练集】
+  feature_sets  训练集元信息（标的/时间范围/特征清单/切分比例）
+  features      特征明细长表：(训练集, 标的, 时间, 特征名) → 值
+
+【实验层 · 回测】
+  experiments       一次实验（策略×标的×成本假设）
+  backtest_runs     一次回测 = (实验, 策略, 标的)
+  backtest_metrics  绩效指标（关键列 + 全量 JSON）
+  equity_points     净值曲线采样点（按 stride 抽样）
+  trades         逐笔交易（进 → 出）
+
+【模型层】
+  model_registry  通过显著性检验、入选实盘的模型
+
+【实盘层】
+  orders              委托记录（含 dry-run 计划）
+  position_snapshots  持仓快照
+  account_snapshots   账户净值快照（账户曲线 / 回撤 / 熔断）
+```
+
+外键关系：
+```
+assets.id ←── bars.asset_id
+assets.id ←── features.symbol（按 symbol 关联）
+feature_sets.id ←── features.feature_set_id
+experiments.id ←── backtest_runs.experiment_id ←── backtest_metrics.run_id
+                                              ←── equity_points.run_id
+                                              ←── trades.run_id
+```
+
+### 数据流（课程报告可直接引用这张图）
+
+```
+  盈透 API（TWS 7497）
+        │  历史 K 线
+        ▼
+  data/manager.get_data()
+        ├──► data_cache/*.csv   （文件缓存，人类可读）
+        └──► db: bars + ingest_log   （SQL 持久化）
+                    │
+                    ▼
+              features（训练集）
+                    │
+                    ▼
+         strategies → backtest → experiments / backtest_runs
+                    │            / backtest_metrics / trades
+                    ▼
+              model_registry（入选模型）
+                    │
+                    ▼
+        paper_ops 实盘委托 → orders / position_snapshots
+                             / account_snapshots
+```
+
+### 数据库 CLI
+
+```bash
+python -m quant_platform.cli db-init          # 建库建表（幂等）
+python -m quant_platform.cli db-import        # 把已有 CSV 缓存导入 bars 表
+python -m quant_platform.cli db-stats         # 各表行数统计
+python -m quant_platform.cli db-coverage      # 行情覆盖总览（标的×周期×时间范围）
+python -m quant_platform.cli db-ingests       # API 抓取日志
+python -m quant_platform.cli db-features --name demo --symbols SPY QQQ AAPL   # 构建训练集
+python -m quant_platform.cli db-features --list                                # 列出训练集
+python -m quant_platform.cli db-features --describe demo                        # 字段统计
+python -m quant_platform.cli db-register  # 实验结论 → model_registry（按 PSR/DSR 门槛自动标记入选）
+python -m quant_platform.cli db-orders --limit 20
+python -m quant_platform.cli db-orders --account          # 账户净值曲线
+python -m quant_platform.cli db-export SPY --bar-size "1 day"
+python -m quant_platform.cli db-query --list               # 列出示例 SQL
+python -m quant_platform.cli db-query --example 2          # 执行第 2 个示例
+python -m quant_platform.cli db-query --sql "SELECT COUNT(*) FROM bars"
+python -m quant_platform.cli db-query        # 进入交互式 SQL（只读）
+```
+
+### 切换到 PostgreSQL / MySQL
+
+业务代码全部走 SQLAlchemy，不含任何 SQLite 专有语法。只需改连接串：
+
+```bash
+# PowerShell
+$env:QP_DATABASE_URL = "postgresql+psycopg2://user:pwd@localhost:5432/quant"
+$env:QP_DATABASE_URL = "mysql+pymysql://user:pwd@localhost:3306/quant"
+
+# Bash
+export QP_DATABASE_URL="postgresql+psycopg2://user:pwd@localhost:5432/quant"
+```
+
+或写进实验配置 YAML：
+
+```yaml
+db:
+  url: "postgresql+psycopg2://user:pwd@localhost:5432/quant"
+  enabled: true
+  persist_bars: true         # API 行情落库
+  persist_experiments: true  # 实验/回测结果落库
+  persist_orders: true       # 委托与账户快照落库
+  equity_stride: 3           # 净值曲线抽样步长
+```
+
+### 在代码里读写
+
+```python
+from quant_platform.db import upsert_bars, load_bars, run_sql, register_model
+
+upsert_bars("AAPL", "1 day", df, source="ibkr")     # 幂等写入
+df = load_bars("AAPL", "1 day", start="2024-01-01")  # 读回 DataFrame
+
+r = run_sql("SELECT strategy, AVG(sharpe) s FROM backtest_runs r "
+            "JOIN backtest_metrics m ON m.run_id=r.id GROUP BY strategy ORDER BY s DESC")
+# r = {"columns": [...], "rows": [[...]], "rowcount": n, "elapsed_ms": 3.1}
+```
+
+---
+
+## 八、环境与权限状态
 
 详见 `_env_check/ENV_REPORT.md`。要点：
 
@@ -206,7 +343,7 @@ print(mon.scan())                # 今日各模型信号与合计建议仓位
 
 ---
 
-## 八、原始教学代码
+## 九、原始教学代码
 
 `data.py` / `indicators.py` / `strategy.py` / `backtest.py` / `main.py` 保留为入门教学版本
 （合成数据、5 个文件讲清一条流水线），建议先读它们理解"回测的坑"，再进入平台代码。

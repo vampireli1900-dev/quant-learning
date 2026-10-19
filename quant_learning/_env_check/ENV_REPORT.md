@@ -97,6 +97,23 @@ Error 10089: 该合约市场数据需额外订阅
   | scipy | 1.15.3 | 统计检验 |
   | scikit-learn | 1.7.2 | 机器学习策略 |
   | yfinance | 1.7.0 | 备用免费数据源 |
+  | SQLAlchemy | 2.0.55 | SQL 数据库 ORM（默认 SQLite，可切 PostgreSQL / MySQL） |
+
+---
+
+## 三·补、数据库环境
+
+| 项目 | 状态 |
+|------|------|
+| 默认数据库 | SQLite：`<项目根>/data/quant.db`（WAL 模式，自动创建） |
+| 表数量 | 14 张（行情 3 / 训练集 2 / 实验 5 / 模型 1 / 实盘 3） |
+| 写入方式 | 旁路写入（bypass）—— 数据库故障绝不中断取数/回测/下单 |
+| 幂等性 | `bars` 按 (标的, 周期, 时间戳) 唯一约束 + upsert，可重复执行 |
+| 只读保护 | `run_sql()` 只放行 SELECT / WITH / EXPLAIN / PRAGMA，拦截写操作与多语句 |
+| 迁移能力 | `db-import` 一键把历史 CSV 缓存搬进库；`QP_DATABASE_URL` 切 PG/MySQL |
+| 落库内容 | API 抓取日志、OHLCV、训练集、实验/回测指标、逐笔交易、委托、账户与持仓快照 |
+
+> 注：`data/*.db*` 已加入 `.gitignore`——数据库是可随时重建的派生数据，不入库。
 
 ---
 

@@ -76,6 +76,47 @@ def _to_float(v) -> float:
 
 
 # ---------------------------------------------------------------------------
+# 数据库落库（旁路：任何失败都只打日志，不影响下单主流程）
+# ---------------------------------------------------------------------------
+def _db_enabled() -> bool:
+    try:
+        from quant_platform.db.repository import DB_ENABLED
+        return bool(DB_ENABLED)
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+def _persist_account(ts: datetime, account: str, summary: dict):
+    if not _db_enabled():
+        return
+    try:
+        from quant_platform.db import save_account_snapshot
+        save_account_snapshot(ts, account, summary)
+    except Exception as e:                                     # noqa: BLE001
+        _log(f"  [db] 账户快照落库失败：{str(e)[:60]}")
+
+
+def _persist_positions(ts: datetime, account: str, positions):
+    if not _db_enabled() or positions is None or not len(positions):
+        return
+    try:
+        from quant_platform.db import save_positions
+        save_positions(ts, account, positions)
+    except Exception as e:                                     # noqa: BLE001
+        _log(f"  [db] 持仓快照落库失败：{str(e)[:60]}")
+
+
+def _persist_order(order: dict):
+    if not _db_enabled():
+        return
+    try:
+        from quant_platform.db import save_order
+        save_order(order)
+    except Exception as e:                                     # noqa: BLE001
+        _log(f"  [db] 委托记录落库失败：{str(e)[:60]}")
+
+
+# ---------------------------------------------------------------------------
 # 账户检查 / 取价 / 汇率
 # ---------------------------------------------------------------------------
 def assert_paper_account(broker: IBBroker) -> str:
@@ -206,11 +247,13 @@ def run_round(cfg_capital: float, fraction: float, symbols: List[str],
             acc = broker.account()
             netliq = _to_float(acc.get("NetLiquidation") or acc.get("TotalCashValue"))
             _log(f"  账户 {acct_str} | 净值 {netliq:,.0f}")
+            _persist_account(datetime.now(), acct_str, acc)   # 仅真实连接时落库
             try:
                 pos = broker.positions()
                 if len(pos):
                     for _, r in pos.iterrows():
                         current[str(r["symbol"]).upper()] = float(r["position"])
+                    _persist_positions(datetime.now(), acct_str, pos)
             except Exception as e:                             # noqa: BLE001
                 _log(f"  [提示] 读持仓失败：{str(e)[:60]}")
 
@@ -314,6 +357,8 @@ def run_round(cfg_capital: float, fraction: float, symbols: List[str],
                     o["执行"] = f"失败：{type(e).__name__}: {str(e)[:80]}"
             else:
                 o["执行"] = "DRY-RUN 未发单"
+            # 落库：委托计划 + 执行结果一并入库，便于事后审计与复盘
+            _persist_order({**o, "账户": acct_str, "round_id": ts})
             orders.append(o)
 
         result = {

@@ -140,9 +140,10 @@ async function boot() {
   $('#pfSchemeSel').onchange = () => loadPortfolio();
   $('#pfRefresh').onclick = () => loadPortfolio();
 
-  bindNav(); bindOverlays();
+  bindNav(); bindOverlays(); bindDb();
   await reloadAll();
   loadRanking(); loadRiskViews(); loadWatchlist(); loadAccount(); loadPaper();
+  loadDb();
 
   // 市场时钟 + 自动刷新
   tickClock(); setInterval(tickClock, 1000);
@@ -168,6 +169,7 @@ function bindNav() {
     $('#view-' + state.view).classList.add('active');
     if (state.view === 'equity') loadEquityCurves($('#eqSymbolSel').value);
     if (state.view === 'portfolio' && !state.pfLoaded) loadPortfolio();
+    if (state.view === 'db') loadDb();
     requestAnimationFrame(() => resizeCharts());
   });
 }
@@ -679,6 +681,209 @@ async function loadPaper() {
       <div class="muted">风控 ${s.风控 || '无'} · 订单 ${s.订单数 ?? 0} 笔 · 标的 ${s.标的数 ?? 0}</div>
       <div class="muted">权重 ${JSON.stringify(s.目标权重 || {})}</div>
     </div>`).join('');
+}
+
+/* ==========================================================================
+   数据库视图（SQL）
+   ========================================================================== */
+const DB_GROUPS = [
+  {
+    title: '行情数据 · API 抓取',
+    tables: [
+      ['assets', '标的主数据，代码唯一'],
+      ['bars', 'OHLCV 行情，按(标的,周期,时间)唯一'],
+      ['ingest_log', '每次调 API 的抓取日志'],
+    ],
+  },
+  {
+    title: '训练集 · 特征工程',
+    tables: [
+      ['feature_sets', '训练集元信息（标的/时间/特征清单）'],
+      ['features', '特征明细长表（样本×特征→值）'],
+    ],
+  },
+  {
+    title: '实验与回测',
+    tables: [
+      ['experiments', '一次实验（策略×标的×假设）'],
+      ['backtest_runs', '一次回测 = (实验,策略,标的)'],
+      ['backtest_metrics', '绩效指标（关键列+全量JSON）'],
+      ['equity_points', '净值曲线采样点'],
+      ['trades', '逐笔交易（进→出）'],
+    ],
+  },
+  {
+    title: '模型注册表',
+    tables: [['model_registry', '通过显著性检验、入选实盘的模型']],
+  },
+  {
+    title: '实盘运营',
+    tables: [
+      ['orders', '委托记录（含 dry-run 计划）'],
+      ['position_snapshots', '持仓快照'],
+      ['account_snapshots', '账户净值快照'],
+    ],
+  },
+];
+
+let dbRows = {};
+
+function renderDbSummary(info) {
+  const box = $('#dbSummary');
+  if (!info || !info.available) {
+    box.innerHTML = `<div class="card"><div class="k">数据库</div>
+      <div class="v db-err">不可用</div>
+      <div class="s">${(info && info.reason) || '未安装 sqlalchemy'}</div></div>`;
+    return;
+  }
+  const cards = [
+    ['方言', info.dialect.toUpperCase(), info.sqlite ? '单文件，零配置' : '客户端/服务器'],
+    ['表数量', info.tables.length, '14 张表 · 5 层结构'],
+    ['总行数', (info.total_rows || 0).toLocaleString(), '全部表累计'],
+    ['文件大小', (info.size_mb ?? 0) + ' MB', 'SQLite 数据文件'],
+  ];
+  box.innerHTML = cards.map(([k, v, s], i) =>
+    `<div class="card" style="animation:dbIn .42s var(--ease) ${i * 60}ms forwards;opacity:0">
+       <div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div>
+     </div>`).join('');
+}
+
+function renderDbTables(info) {
+  const box = $('#dbTables');
+  if (!info || !info.available) { box.innerHTML = ''; return; }
+  const byName = {};
+  (info.tables || []).forEach(t => { byName[t['表']] = t['行数']; });
+  const maxRows = Math.max(1, ...Object.values(byName));
+
+  box.innerHTML = DB_GROUPS.map((g, gi) => `
+    <div class="db-group-title">${g.title}</div>
+    <div class="db-grid">${g.tables.map(([n, d], ti) => {
+      const rows = byName[n] ?? 0;
+      const w = Math.round(Math.log10(rows + 1) / Math.log10(maxRows + 1) * 100);
+      return `<div class="db-tbl" style="animation-delay:${(gi * 5 + ti) * 45}ms" title="${d}">
+        <div class="n">${n}</div>
+        <div class="r${rows ? '' : ' empty'}">${rows.toLocaleString()}</div>
+        <div class="m">${d}</div>
+        <div class="b"><i data-w="${w}"></i></div>
+      </div>`;
+    }).join('')}
+  </div>`).join('');
+
+  // 条形进度动画：等一帧再设宽度，才能触发 transition
+  requestAnimationFrame(() => {
+    $$('#dbTables .b i').forEach(el => { el.style.width = el.dataset.w + '%'; });
+  });
+}
+
+function renderEr() {
+  // 五层节点（x, y, 宽, 高, 标题, 副标题, 高亮）
+  const nodes = [
+    [14, 12, 132, 40, 'assets', '标的主数据', 0],
+    [178, 12, 156, 40, 'bars', 'OHLCV 行情', 0],
+    [366, 12, 132, 40, 'ingest_log', '抓取日志', 0],
+    [14, 96, 156, 40, 'feature_sets', '训练集元信息', 0],
+    [202, 96, 156, 40, 'features', '特征长表', 0],
+    [14, 180, 132, 40, 'experiments', '实验', 0],
+    [178, 180, 156, 40, 'backtest_runs', '回测运行', 0],
+    [366, 180, 156, 40, 'backtest_metrics', '绩效指标', 0],
+    [554, 180, 132, 40, 'equity_points', '净值曲线', 0],
+    [714, 180, 132, 40, 'trades', '逐笔交易', 0],
+    [280, 264, 156, 40, 'model_registry', '入选模型', 1],
+    [14, 348, 120, 40, 'orders', '委托记录', 0],
+    [166, 348, 168, 40, 'position_snapshots', '持仓快照', 0],
+    [366, 348, 168, 40, 'account_snapshots', '账户快照', 0],
+  ];
+  const links = [
+    [98, 54, 98, 96], [256, 54, 256, 96], [256, 116, 256, 180],
+    [80, 140, 80, 180], [310, 220, 310, 264], [444, 220, 444, 264],
+    [80, 220, 80, 348], [250, 300, 74, 348], [250, 300, 250, 348],
+    [250, 300, 450, 348],
+  ];
+  const svg = ['<svg viewBox="0 0 880 404" xmlns="http://www.w3.org/2000/svg">'];
+  svg.push('<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" '
+    + 'orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#2962ff"/></marker></defs>');
+  links.forEach(([x1, y1, x2, y2], i) => {
+    svg.push(`<path class="er-flow" d="M${x1},${y1} C${x1},${(y1 + y2) / 2} `
+      + `${x2},${(y1 + y2) / 2} ${x2},${y2}" marker-end="url(#ar)" `
+      + `style="animation-delay:${i * 120}ms" opacity=".55"/>`);
+  });
+  nodes.forEach(([x, y, w, h, t, s, hi]) => {
+    svg.push(`<rect class="er-box-node${hi ? ' er-node-hi' : ''}" x="${x}" y="${y}" `
+      + `width="${w}" height="${h}" rx="6"/>`);
+    svg.push(`<text class="er-t" x="${x + 11}" y="${y + 18}">${t}</text>`);
+    svg.push(`<text class="er-s" x="${x + 11}" y="${y + 32}">${s}</text>`);
+  });
+  svg.push('</svg>');
+  $('#dbEr').innerHTML = svg.join('');
+}
+
+
+async function loadDb() {
+  try {
+    const info = await api('/api/db/info');
+    renderDbSummary(info);
+    renderDbTables(info);
+    $('#dbTag').textContent = info.available
+      ? `${info.dialect.toUpperCase()} · ${info.total_rows.toLocaleString()} 行`
+      : '不可用';
+    $('#dbPath').textContent = info.location || '';
+  } catch (e) {
+    $('#dbTag').textContent = '不可用';
+  }
+  try {
+    const ex = await api('/api/db/examples');
+    const sel = $('#dbExampleSel');
+    sel.innerHTML = '<option value="">— 选择示例查询 —</option>' +
+      ex.examples.map((q, i) => `<option value="${i}">${q['名称']}</option>`).join('');
+    sel.onchange = () => {
+      const i = sel.value;
+      if (i === '') return;
+      $('#dbSql').value = ex.examples[+i]['sql'];
+    };
+    window.__dbExamples = ex.examples;
+    if (!$('#dbSql').value) $('#dbSql').value = ex.examples[0]['sql'];
+  } catch (e) { /* 忽略 */ }
+}
+
+async function runDbQuery() {
+  const sql = $('#dbSql').value.trim();
+  const msg = $('#dbMsg');
+  if (!sql) { msg.textContent = '请输入 SQL'; return; }
+  loading(true);
+  try {
+    const r = await fetch('/api/db/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql, limit: 500 }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      msg.innerHTML = `<span class="db-err">错误：${d.detail || r.status}</span>`;
+      return;
+    }
+    msg.textContent = `${d.rowcount} 行 · ${d.elapsed_ms} ms`;
+    if (!d.columns.length) { $('#dbResult').innerHTML = ''; return; }
+    $('#dbResult').innerHTML =
+      `<thead><tr>${d.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+      d.rows.map((row, ri) =>
+        `<tr style="animation:dbIn .32s var(--ease) ${Math.min(ri, 20) * 14}ms forwards;opacity:0">` +
+        row.map(v => {
+          let s = (v === null || v === undefined) ? '—'
+            : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : fmt(v, 4)) : String(v));
+          if (typeof v === 'string' && v.length > 60) s = v.slice(0, 60) + '…';
+          return `<td>${s}</td>`;
+        }).join('') + '</tr>').join('') + '</tbody>';
+  } catch (e) {
+    msg.innerHTML = `<span class="db-err">请求失败：${e.message}</span>`;
+  } finally { loading(false); }
+}
+
+function bindDb() {
+  $('#dbRefresh').onclick = () => loadDb();
+  $('#dbRun').onclick = () => runDbQuery();
+  $('#dbSql').addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runDbQuery(); }
+  });
 }
 
 boot().catch(e => {

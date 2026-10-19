@@ -33,6 +33,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
@@ -561,6 +562,138 @@ def paper_state():
 # ---------------------------------------------------------------------------
 # 启动
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 数据库（SQL）只读接口
+# ---------------------------------------------------------------------------
+class SQLQuery(BaseModel):
+    sql: str
+    limit: int = 500
+
+
+@app.get("/api/db/info")
+def db_info():
+    """数据库位置、方言、文件大小 + 各表行数。"""
+    try:
+        from ..db import db_file_size, db_path_or_dsn, is_sqlite, table_stats
+        from ..db.session import get_engine
+    except Exception as e:                                      # noqa: BLE001
+        return {"available": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}
+    try:
+        engine = get_engine()
+        stats = table_stats()
+        size = db_file_size()
+        return {
+            "available": True,
+            "location": db_path_or_dsn(),
+            "dialect": engine.dialect.name,
+            "sqlite": is_sqlite(),
+            "size_mb": round(size / 1024 / 1024, 3) if size is not None else None,
+            "tables": stats.to_dict(orient="records"),
+            "total_rows": int(stats["行数"].sum()) if len(stats) else 0,
+        }
+    except Exception as e:                                     # noqa: BLE001
+        return {"available": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}
+
+
+@app.get("/api/db/examples")
+def db_examples():
+    """预置的示例 SQL（课程演示用）。"""
+    try:
+        from ..db import example_queries
+        return {"examples": example_queries()}
+    except Exception as e:                                     # noqa: BLE001
+        return {"examples": [], "reason": str(e)[:120]}
+
+
+@app.post("/api/db/query")
+def db_query(q: SQLQuery):
+    """
+    执行只读 SQL。
+
+    安全：repository.assert_readonly 会拦截任何非 SELECT/WITH/EXPLAIN/PRAGMA
+    开头的语句以及多语句注入。
+    """
+    try:
+        from ..db import run_sql
+    except Exception as e:                                     # noqa: BLE001
+        raise HTTPException(503, f"数据库不可用：{type(e).__name__}: {str(e)[:120]}")
+    try:
+        return run_sql(q.sql, limit=q.limit)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:                                     # noqa: BLE001
+        raise HTTPException(400, f"{type(e).__name__}: {str(e)[:300]}")
+
+
+@app.get("/api/db/schema")
+def db_schema(table: str = "bars"):
+    """返回某张表的字段定义。"""
+    try:
+        from ..db import table_schema
+        df = table_schema(table)
+        if not len(df):
+            return {"table": table, "columns": []}
+        return {"table": table,
+                "columns": df.replace({np.nan: None}).to_dict(orient="records")}
+    except Exception as e:                                     # noqa: BLE001
+        raise HTTPException(400, f"{type(e).__name__}: {str(e)[:200]}")
+
+
+@app.get("/api/db/coverage")
+def db_coverage():
+    """行情覆盖总览。"""
+    try:
+        from ..db import bar_coverage
+        df = bar_coverage()
+        return {"rows": df.to_dict(orient="records")}
+    except Exception as e:                                     # noqa: BLE001
+        return {"rows": [], "reason": str(e)[:120]}
+
+
+@app.get("/api/db/ingests")
+def db_ingests(limit: int = 50):
+    """API 抓取日志。"""
+    try:
+        from ..db import recent_ingests
+        df = recent_ingests(limit=limit)
+        return {"rows": df.to_dict(orient="records")}
+    except Exception as e:                                     # noqa: BLE001
+        return {"rows": [], "reason": str(e)[:120]}
+
+
+@app.get("/api/db/features")
+def db_features():
+    """训练集清单。"""
+    try:
+        from ..db import list_feature_sets
+        df = list_feature_sets()
+        return {"rows": df.to_dict(orient="records")}
+    except Exception as e:                                     # noqa: BLE001
+        return {"rows": [], "reason": str(e)[:120]}
+
+
+@app.get("/api/db/orders")
+def db_orders(limit: int = 100, symbol: Optional[str] = None):
+    """委托记录。"""
+    try:
+        from ..db import list_orders
+        df = list_orders(limit=limit, symbol=symbol)
+        return {"rows": [] if not len(df) else df.to_dict(orient="records")}
+    except Exception as e:                                     # noqa: BLE001
+        return {"rows": [], "reason": str(e)[:120]}
+
+
+@app.get("/api/db/account_curve")
+def db_account_curve(limit: int = 300):
+    """账户净值快照序列。"""
+    try:
+        from ..db import account_curve
+        df = account_curve(limit=limit)
+        return {"rows": [] if not len(df) else df.to_dict(orient="records")}
+    except Exception as e:                                     # noqa: BLE001
+        return {"rows": [], "reason": str(e)[:120]}
+
+
 def run_server(host: str = "127.0.0.1", port: int = 8770, reload: bool = False):
     import uvicorn
     print(f"QuantLab Web Terminal: http://{host}:{port}")

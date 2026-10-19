@@ -102,6 +102,13 @@
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span>信号监控</span>
         </button>
+        <button class="nav-item" data-view="db">
+          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="3" fill="none"
+            stroke="currentColor" stroke-width="1.8"/><path d="M4.5 6v12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"
+            fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3"
+            fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          <span>数据库</span>
+        </button>
       </nav>
 
       <div class="side-block">
@@ -258,6 +265,43 @@
         <div class="panel">
           <div class="panel-head"><div class="ph-left"><h2>模拟盘状态</h2></div></div>
           <div id="paperBox" class="account-box"><span class="muted">加载中…</span></div>
+        </div>
+      </div>
+
+      <!-- 视图：数据库 -->
+      <div class="view" id="view-db">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>数据库总览</h2>
+              <span class="tag" id="dbTag">—</span></div>
+            <div class="ph-right">
+              <span class="muted" id="dbPath"></span>
+              <button class="btn" id="dbRefresh">刷新</button>
+            </div>
+          </div>
+          <div class="grid-3" id="dbSummary"></div>
+          <div class="db-groups" id="dbTables"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>SQL 查询</h2>
+              <span class="tag">只读 · SELECT / WITH</span></div>
+            <div class="ph-right">
+              <select id="dbExampleSel" class="sel"></select>
+              <button class="btn" id="dbRun">执行 ⌘↵</button>
+            </div>
+          </div>
+          <textarea id="dbSql" class="sql-editor" spellcheck="false"
+            placeholder="SELECT * FROM bars LIMIT 20"></textarea>
+          <div id="dbMsg" class="hint"></div>
+          <div class="table-wrap"><table class="tbl" id="dbResult"></table></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>数据模型（ER）</h2>
+            <span class="tag">14 张表 · 5 层</span></div></div>
+          <div id="dbEr" class="er-box"></div>
         </div>
       </div>
 

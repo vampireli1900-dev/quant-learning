@@ -1,0 +1,18 @@
+# 数据库落库验证用小实验：2 标的 × 3 策略 × 3 年
+name: db_check
+symbols:
+  - SPY
+  - QQQ
+strategies:
+  - 双均线交叉
+  - ZScore回归
+  - ADX趋势过滤
+duration: "3 Y"
+bar_size: "1 day"
+data_source: auto
+initial_capital: 1000000
+commission_rate: 0.0005
+slippage_rate: 0.0005
+include_benchmark: true
+run_walkforward: false
+run_optimization: false
