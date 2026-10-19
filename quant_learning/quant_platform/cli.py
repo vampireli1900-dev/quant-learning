@@ -228,7 +228,7 @@ def cmd_signal(args):
 # ---------------------------------------------------------------------------
 def cmd_db_init(args):
     """建库建表 / 重置 / 查看连接信息。"""
-    from .db import db_path_or_dsn, db_file_size, init_db, reset_db, is_sqlite
+    from .db import db_location, db_size_bytes, init_db, reset_db, is_sqlite
     from .db.schema import TABLE_GROUPS
 
     if args.reset:
@@ -236,13 +236,13 @@ def cmd_db_init(args):
             print("危险：--reset 会清空所有数据！确认请加 --yes")
             return
         engine = reset_db()
-        print(f"已重置数据库：{db_path_or_dsn()}")
+        print(f"已重置数据库：{db_location()}")
     else:
         engine = init_db()
 
-    print(f"数据库位置 : {db_path_or_dsn()}")
+    print(f"数据库位置 : {db_location()}")
     print(f"方言       : {engine.dialect.name}")
-    size = db_file_size()
+    size = db_size_bytes()
     if size is not None:
         print(f"文件大小   : {size / 1024 / 1024:.2f} MB")
     print("\n表结构：")

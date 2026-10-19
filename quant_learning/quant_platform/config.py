@@ -26,11 +26,14 @@ CACHE_DIR = PROJECT_ROOT / "data_cache"
 RESULTS_DIR = PROJECT_ROOT / "results"
 CONFIG_DIR = PROJECT_ROOT / "configs"
 LOG_DIR = PROJECT_ROOT / "logs"
+# SQL 数据库目录（SQLite 默认落在这里；切 PG/MySQL 时此目录不用）
+DATA_DIR = PROJECT_ROOT / "data"
+DEFAULT_DB_PATH = DATA_DIR / "quant.db"
 
 
 def ensure_dirs() -> None:
     """创建平台需要的目录（幂等）。"""
-    for d in (CACHE_DIR, RESULTS_DIR, CONFIG_DIR, LOG_DIR):
+    for d in (CACHE_DIR, RESULTS_DIR, CONFIG_DIR, LOG_DIR, DATA_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 
