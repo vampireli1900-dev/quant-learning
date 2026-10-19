@@ -436,6 +436,52 @@ def cmd_db_export(args):
                out=Path(args.out) if args.out else None)
 
 
+def cmd_db_dump(args):
+    """导出建表 DDL（可直接写入作业报告 / 在别的库执行）。"""
+    from pathlib import Path
+    from sqlalchemy.schema import CreateIndex, CreateTable
+    from .db import TABLE_COMMENTS, TABLE_GROUPS, Base, db_location, get_engine
+
+    eng = get_engine()
+    out = Path(args.out)
+    if out.parent != Path(""):
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+    group_of = {t: g for g, names in TABLE_GROUPS.items() for t in names}
+
+    buf = [
+        "-- ============================================================",
+        "-- quant_learning · 量化交易模型实验平台 —— 数据库结构（DDL）",
+        f"-- 由 ORM 自动生成，请勿手工编辑；方言：{eng.dialect.name}",
+        f"-- 当前库位置：{db_location()}",
+        "-- ============================================================",
+        "",
+    ]
+
+    tables = Base.metadata.sorted_tables      # 已按外键依赖拓扑排序
+    by_name = {t.name: t for t in tables}
+    ordered: list = []
+    for g, names in TABLE_GROUPS.items():     # 按业务分层输出，便于阅读
+        ordered += [by_name[n] for n in names if n in by_name]
+    ordered += [t for t in tables if t not in ordered]
+
+    current_group = None
+    for t in ordered:
+        g = group_of.get(t.name, "其它")
+        if g != current_group:
+            current_group = g
+            buf += [f"-- ---------------- {g} ----------------", ""]
+        if t.name in TABLE_COMMENTS:
+            buf.append(f"-- {TABLE_COMMENTS[t.name]}")
+        buf.append(str(CreateTable(t).compile(eng)).strip().rstrip(";") + ";")
+        for idx in sorted(t.indexes, key=lambda i: i.name or ""):
+            buf.append(str(CreateIndex(idx).compile(eng)).strip().rstrip(";") + ";")
+        buf.append("")
+
+    out.write_text("\n".join(buf), encoding="utf-8")
+    print(f"已导出 DDL → {out}（{len(tables)} 张表，{out.stat().st_size} 字节）")
+
+
 def cmd_web(args):
     """启动 TradingView 风格的 Web 展示终端。"""
     from .web import run_server
@@ -647,6 +693,10 @@ def build_parser() -> argparse.ArgumentParser:
     de.add_argument("--bar-size", default="1 day")
     de.add_argument("--out", default=None)
     de.set_defaults(func=cmd_db_export)
+
+    dd = sub.add_parser("db-dump", help="导出建表 DDL 到 .sql 文件")
+    dd.add_argument("--out", default="docs/schema.sql")
+    dd.set_defaults(func=cmd_db_dump)
 
     w = sub.add_parser("web", help="启动 Web 展示终端")
     w.add_argument("--host", default="127.0.0.1")

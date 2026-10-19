@@ -299,7 +299,12 @@ python -m quant_platform.cli db-query --list               # 列出示例 SQL
 python -m quant_platform.cli db-query --example 2          # 执行第 2 个示例
 python -m quant_platform.cli db-query --sql "SELECT COUNT(*) FROM bars"
 python -m quant_platform.cli db-query        # 进入交互式 SQL（只读）
+python -m quant_platform.cli db-dump         # 导出建表 DDL → docs/schema.sql
 ```
+
+`db-dump` 会把 14 张表的 `CREATE TABLE` / `CREATE INDEX` 按业务分层导出成标准 SQL
+（默认 `docs/schema.sql`，可用 `--out` 改路径）。该文件可直接贴进课程作业报告，
+也可在任意空库上执行重建结构——已验证可独立执行（14 表 / 29 索引）。
 
 ### 切换到 PostgreSQL / MySQL
 
