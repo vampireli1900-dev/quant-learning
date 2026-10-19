@@ -993,6 +993,50 @@ def table_schema(table: str) -> pd.DataFrame:
         } for c in cols])
 
 
+def sync_model_registry(experiment: Optional[str] = None,
+                        psr_min: float = 0.95, dsr_min: float = 0.95,
+                        select: bool = True,
+                        session: Optional[Session] = None) -> pd.DataFrame:
+    """
+    把实验结论汇总进 model_registry（研究 → 决策的落库闭环）。
+
+    做法：按策略跨标的聚合 backtest_metrics 的 sharpe / psr / dsr，
+    写入 model_registry；当 PSR 与 DSR 同时超过阈值时自动标记 selected=True。
+
+    experiment=None → 汇总**所有**实验；否则只汇总指定实验。
+    """
+    if not DB_ENABLED:
+        return pd.DataFrame()
+    ctx = session_scope() if session is None else None
+    s = session or (ctx.__enter__() if ctx else None)          # type: ignore[arg-type]
+    try:
+        sql = ("SELECT r.strategy AS strategy, COUNT(*) AS n, "
+               "       AVG(m.sharpe) AS sharpe, AVG(m.psr) AS psr, "
+               "       AVG(m.dsr) AS dsr "
+               "FROM backtest_runs r "
+               "JOIN backtest_metrics m ON m.run_id = r.id "
+               "JOIN experiments e ON e.id = r.experiment_id "
+               "WHERE (:exp IS NULL OR e.name = :exp) AND m.sharpe IS NOT NULL "
+               "GROUP BY r.strategy ORDER BY sharpe DESC")
+        rows = s.execute(text(sql), {"exp": experiment}).all()
+    finally:
+        if ctx is not None:
+            ctx.__exit__(None, None, None)
+
+    out = []
+    for strategy, n, sharpe, psr, dsr in rows:
+        sel = bool(select and (psr or 0) > psr_min and (dsr or 0) > dsr_min)
+        register_model(strategy=strategy, symbol="PORTFOLIO",
+                       source_experiment=experiment or "(全部实验)",
+                       sharpe=sharpe, psr=psr, dsr=dsr, selected=sel,
+                       note=("自动同步：PSR>%.2f 且 DSR>%.2f → 入选实盘"
+                             % (psr_min, dsr_min)) if sel else
+                            "自动同步：未达显著性门槛")
+        out.append({"模型": strategy, "标的数": int(n), "夏普": sharpe,
+                    "PSR": psr, "DSR": dsr, "入选": sel})
+    return pd.DataFrame(out)
+
+
 def example_queries() -> List[Dict[str, str]]:
     """Web 端与 CLI 共用的示例查询（也是课程演示脚本）。"""
     return [

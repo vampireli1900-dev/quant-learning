@@ -6,6 +6,12 @@ __pycache__/
 
 # 数据与结果（体积大、可随时重新生成）
 data_cache/
+# SQL 数据库文件（db-init / db-import 可随时重建，且是二进制）
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.sqlite
+data/*.sqlite3
 # SQL 数据库文件（db-init / db-import 可随时重建，且含二进制快照）
 data/*.db
 data/*.db-wal

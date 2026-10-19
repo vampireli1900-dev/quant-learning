@@ -51,6 +51,24 @@ _CACHE = DataCache(enabled=CONFIG.cache_enabled)
 _SOURCES: dict[str, DataSource] = {}
 
 
+def persist_to_db(symbol: str, req: DataRequest, df, source: str) -> int:
+    """
+    把取到的数据写进 SQL 数据库（bars 表）。
+
+    设计原则：这是**旁路写入** —— 任何失败都只打日志，绝不中断取数流程。
+    实验能不能跑，不应该取决于数据库是否可用。
+    """
+    try:
+        from ..db.repository import DB_ENABLED, upsert_bars
+        dbcfg = getattr(CONFIG, "db", None)
+        if not DB_ENABLED or not (dbcfg and dbcfg.enabled and dbcfg.persist_bars):
+            return 0
+        return int(upsert_bars(symbol, req.bar_size, df, source=source))
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[db] 落库失败（不影响取数）: {type(e).__name__}: {str(e)[:80]}")
+        return 0
+
+
 def get_source(name: str) -> DataSource:
     name = name.lower()
     if name not in _SOURCES:

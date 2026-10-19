@@ -54,13 +54,18 @@ from .repository import (                                   # noqa: E402,F401
     DB_ENABLED, assert_readonly, bar_coverage, example_queries, get_detail,
     get_equity_curve, get_ranking, get_or_create_asset, ingest_logged,
     list_experiments, list_feature_sets, list_models, list_orders,
-    load_bars, load_feature_set, run_sql, save_account_snapshot,
-    save_experiment, save_feature_set, save_order, save_positions,
-    set_enabled, table_schema, table_stats, upsert_bars, recent_ingests,
-    account_curve,
+    load_bars, load_feature_set, register_model, run_sql,
+    save_account_snapshot, save_experiment, save_feature_set, save_order,
+    save_positions,
+    set_enabled, sync_model_registry, table_schema, table_stats,
+    upsert_bars, recent_ingests, account_curve,
 )
 from . import features                                      # noqa: E402,F401
+from .features import (                                     # noqa: E402,F401
+    build_training_set, describe_feature_set, load_training_set,
+)
 from . import migrate                                       # noqa: E402,F401
+from .migrate import export_csv, import_cache, vacuum      # noqa: E402,F401
 
 __all__ += [
     "repository", "features", "migrate", "DB_ENABLED", "set_enabled",
@@ -69,7 +74,8 @@ __all__ += [
     "list_experiments", "get_ranking", "get_detail", "get_equity_curve",
     "register_model", "list_models", "save_feature_set", "load_feature_set",
     "list_feature_sets", "save_order", "list_orders", "save_positions",
-    "save_account_snapshot", "account_curve", "table_stats",
-    "table_schema", "run_sql", "assert_readonly", "example_queries",
+    "save_account_snapshot", "account_curve", "sync_model_registry",
+    "table_stats", "table_schema", "run_sql", "assert_readonly",
+    "example_queries",
     "build_training_set", "load_training_set", "describe_feature_set",
 ]

@@ -10,9 +10,9 @@ db/features.py —— 训练集：特征工程 → 落库 → 读回
     4. 落库到 feature_sets / features；
     5. 需要训练时按时间顺序切分 train / valid / test 读回来。
 
-关于未来函数（写报告时一定要说清楚）：
+关于未来函数（写报告时务必说清楚）：
     标签 y 用到了 t+1..t+h 的价格，这**只用于监督学习的训练**。
-    特征 X 只用截至 t 日收盘可得的信息，所以模型在 t 日做预测时不需要未来数据
+    特征 X 只用截至 t 日收盘可得的信息，所以模型在 t 日做预测时不需要任何未来数据
     （ML 策略的滚动重训正是这个用法）。
 """
 
@@ -25,7 +25,6 @@ import pandas as pd
 
 from ..indicators import build_features
 from .repository import load_bars, load_feature_set, save_feature_set
-from .session import session_scope
 
 DEFAULT_LOOKBACKS: Tuple[int, ...] = (5, 10, 20, 60)
 
@@ -73,25 +72,27 @@ def build_training_set(symbols: Sequence[str],
             df = get_data(sym, bar_size=bar_size, duration=duration, source=source)
             try:
                 from .repository import upsert_bars
-                src = "ibkr" if source in ("auto", "ibkr") else source
-                upsert_bars(sym, bar_size, df, source=src)
-            except Exception:                                    # noqa: BLE001
+                upsert_bars(sym, bar_size, df,
+                            source="ibkr" if source in ("auto", "ibkr") else source)
+            except Exception:                                     # noqa: BLE001
                 pass
         if df is None or len(df) < 120:
-            print(f"[跳过] {sym} 数据不足")
+            print(f"[跳过] {sym}：数据不足")
             continue
 
         feat = build_features(df, lookbacks=tuple(lookbacks))
-        feat = feat.drop(columns=["ret_fwd"], errors="ignore")   # 标签单独存
+        feat = feat.drop(columns=["ret_fwd"], errors="ignore")     # 标签单独存
         frames[sym] = feat
         labels[sym] = make_label(df, horizon=horizon, mode=label_mode)
 
     if not frames:
         raise RuntimeError("没有可用数据，训练集构建失败")
 
+    # 合并成 MultiIndex(symbol, ts)
     X = pd.concat({s: f for s, f in frames.items()}, names=["symbol", "ts"])
     y = pd.concat({s: l for s, l in labels.items()}, names=["symbol", "ts"])
     y = y.reindex(X.index)
+    # 尾部天然没有标签（未来还没发生），丢掉
     keep = y.notna()
     X, y = X[keep], y[keep]
 
@@ -100,20 +101,20 @@ def build_training_set(symbols: Sequence[str],
         name=name, feat=X, label=y, symbols=list(frames.keys()),
         description=description or f"{bar_size} / {duration}，{len(X.columns)} 个特征",
         train_ratio=train_ratio, label_name=label_name)
-    print(f"[训练集] {name} 已保存：{len(X):,} 样本 × {len(X.columns)} 特征 "
-          f"| 标签 {label_name}")
+    print(f"[训练集] {name} 已保存：{len(X):,} 样本 × {len(X.columns)} 特征"
+          f" | 标签 {label_name}")
     return fs_id
 
 
 def load_training_set(name: str, return_split: bool = False):
-    """读回训练集；return_split=True 时按时间切成 train/valid/test。"""
+    """读回训练集；return_split=True 时按时间切成 train / valid / test。"""
     return load_feature_set(name, return_split=return_split)
 
 
 def describe_feature_set(name: str) -> pd.DataFrame:
     """某个训练集每个特征的统计描述（缺失率、均值、标准差、分位数）。"""
     X, y = load_feature_set(name)
-    if X.empty:
+    if X is None or X.empty:
         return pd.DataFrame()
     desc = X.describe().T
     desc["缺失率"] = X.isna().mean()

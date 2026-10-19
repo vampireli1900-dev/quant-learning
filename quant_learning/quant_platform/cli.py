@@ -37,6 +37,14 @@ def _print_df(df: pd.DataFrame):
     print(df.to_string())
 
 
+def _to_f(v) -> float:
+    """把可能是 None / NaN / 字符串的值安全转成 float（失败返回 NaN）。"""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
 def cmd_list(args):
     from .strategies import strategy_table
     _print_df(strategy_table())
@@ -131,6 +139,22 @@ def cmd_significance(args):
     _print_df(b[[c for c in cols if c in b.columns]])
     print("\n判据：PSR>0.95 且 DSR>0.95 才算真的显著；"
           "最小样本量 > 实际样本数 = 数据不够，结论不可信")
+
+    # 落库：把这次显著性体检的结论写进 model_registry
+    try:
+        from .db import register_model
+        for _, r in b.iterrows():
+            psr = _to_f(r.get("PSR(>0)"))
+            dsr = _to_f(r.get("DSR"))
+            register_model(strategy=str(r.get("策略")),
+                           symbol=str(args.symbol).upper(),
+                           source_experiment=f"significance/{args.symbol}",
+                           sharpe=_to_f(r.get("夏普比率")), psr=psr, dsr=dsr,
+                           selected=bool(psr > 0.95 and dsr > 0.95),
+                           note="来自 CLI significance 显著性体检")
+        print("  → 已写入数据库 model_registry")
+    except Exception as e:                                     # noqa: BLE001
+        print(f"  [db] 写入 model_registry 失败：{str(e)[:80]}")
     if args.random:
         print("\n=== 随机信号置换检验 ===")
         rows = []
@@ -370,6 +394,30 @@ def cmd_db_features(args):
                        from_db=not args.no_from_db)
 
 
+def cmd_db_register(args):
+    """
+    把实验结论同步进 model_registry（自动按 PSR/DSR 门槛标记入选）。
+
+    这一步是"研究 → 决策"的落库闭环：回测指标留在 backtest_metrics，
+    最终选用哪些模型、为什么选，记在 model_registry，供实盘脚本读取。
+    """
+    from .db import list_models, sync_model_registry
+
+    df = sync_model_registry(experiment=args.experiment,
+                             psr_min=args.psr_min, dsr_min=args.dsr_min,
+                             select=not args.no_select)
+    if not len(df):
+        print("（库里还没有回测指标，先跑一次 experiment）")
+        return
+    _print_df(df)
+    n = int(df["入选"].sum()) if "入选" in df else 0
+    print(f"\n共 {len(df)} 个模型，其中 {n} 个达标入选 "
+          f"(PSR>{args.psr_min} 且 DSR>{args.dsr_min})")
+    if args.show:
+        print("\n当前模型注册表：")
+        _print_df(list_models())
+
+
 def cmd_db_orders(args):
     """查看委托记录 / 账户与持仓快照。"""
     from .db import list_orders, account_curve
@@ -576,6 +624,17 @@ def build_parser() -> argparse.ArgumentParser:
     df_.add_argument("--list", action="store_true", help="列出已有训练集")
     df_.add_argument("--describe", default=None, help="查看某训练集的字段统计")
     df_.set_defaults(func=cmd_db_features)
+
+    dr = sub.add_parser("db-register",
+                        help="把实验结论同步进模型注册表（按 PSR/DSR 门槛标记入选）")
+    dr.add_argument("--experiment", default=None,
+                    help="实验名；不填则汇总全部实验")
+    dr.add_argument("--psr-min", type=float, default=0.95)
+    dr.add_argument("--dsr-min", type=float, default=0.95)
+    dr.add_argument("--no-select", action="store_true",
+                    help="只同步指标，不自动标记入选")
+    dr.add_argument("--show", action="store_true", help="同步后打印完整注册表")
+    dr.set_defaults(func=cmd_db_register)
 
     do = sub.add_parser("db-orders", help="委托记录 / 账户快照")
     do.add_argument("--limit", type=int, default=100)
