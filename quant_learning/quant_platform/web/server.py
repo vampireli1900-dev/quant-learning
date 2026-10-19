@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -40,6 +41,9 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 
 # 简单进程内缓存：key -> (expire_ts, value)
 _CACHE: Dict[str, tuple] = {}
+# 持久 IB 工作线程（见 _run_in_loop）
+_IB_WORKER = None
+_IB_WORKER_LOCK = threading.Lock()
 TTL = {
     "ohlc": 300,
     "signals": 300,
@@ -70,35 +74,52 @@ def _read_csv(p: Path) -> pd.DataFrame:
 
 def _run_in_loop(fn, timeout: float = 120):
     """
-    ib_insync 内部依赖 asyncio 事件循环，而 FastAPI 的同步端点跑在线程池里，
-    那个线程没有 current event loop（会报 "There is no current event loop"）。
-    这里单独开一个线程，给它造一个专用事件循环再执行同步的 IB 代码。
+    ib_insync 依赖"创建它的那个线程的事件循环"。之前每次请求都新开线程+新循环，
+    导致单例 IB 连接绑定在已关闭的旧循环上，第二次请求报
+    "'NoneType' object has no attribute 'send'"。
+    改为：一个持久的 IB 工作线程（拥有自己的事件循环），所有 IB 调用都排队
+    在这个线程上串行执行 —— 连接自然复用，永不跨循环。
     """
-    import asyncio
+    import queue
     import threading
 
+    global _IB_WORKER
+    with _IB_WORKER_LOCK:
+        if _IB_WORKER is None or not _IB_WORKER["thread"].is_alive():
+            _IB_JOBS = queue.Queue()
+
+            def _worker():
+                # ib_insync 导入时就要求当前线程已有事件循环，
+                # （"There is no current event loop in thread ..."）
+                # 所以 worker 一启动就先把循环建好
+                import asyncio
+                asyncio.set_event_loop(asyncio.new_event_loop())
+                while True:
+                    fn_, box_, done_ = _IB_JOBS.get()
+                    if fn_ is None:
+                        return
+                    try:
+                        box_["val"] = fn_()
+                    except Exception as e:                        # noqa: BLE001
+                        box_["err"] = e
+                    finally:
+                        done_.set()
+
+            t = threading.Thread(target=_worker, daemon=True,
+                                 name="ib-worker")
+            t.start()
+            _IB_WORKER = {"thread": t, "jobs": _IB_JOBS}
+
+    jobs = _IB_WORKER["jobs"]
     box: Dict[str, object] = {}
-
-    def _target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            box["val"] = fn()
-        except Exception as e:                                # noqa: BLE001
-            box["err"] = e
-        finally:
-            try:
-                loop.close()
-            except Exception:                                 # noqa: BLE001
-                pass
-
-    t = threading.Thread(target=_target, daemon=True)
-    t.start()
-    t.join(timeout)
+    done = threading.Event()
+    jobs.put((fn, box, done))
+    if not done.wait(timeout):
+        raise TimeoutError(f"IB 调用超时（>{timeout:.0f}s）")
     if "err" in box:
         raise box["err"]                                      # type: ignore[misc]
     if "val" not in box:
-        raise TimeoutError(f"调用超时（>{timeout:.0f}s）")
+        raise RuntimeError("IB 调用无返回")
     return box["val"]
 
 
@@ -173,18 +194,32 @@ def _discover_experiments() -> List[str]:
 # ---------------------------------------------------------------------------
 # K 线 + 成交量 + 指标
 # ---------------------------------------------------------------------------
+# 周期 -> (bar_size, 默认 duration)
+BARS = {
+    "day":  ("1 day", "5 Y", "日线"),
+    "week": ("1 week", "5 Y", "周线"),
+    "hour": ("1 hour", "2 Y", "1小时"),
+    "min15": ("15 mins", "1 M", "15分钟"),
+}
+INTRADAY = {"hour", "min15"}
+
+
 @app.get("/api/ohlc")
-def ohlc(symbol: str = "SPY", duration: str = "5 Y"):
-    key = f"ohlc|{symbol}|{duration}"
-    return _cached(key, TTL["ohlc"], lambda: _compute_ohlc(symbol, duration))
+def ohlc(symbol: str = "SPY", duration: str = "5 Y", bar: str = "day"):
+    if bar not in BARS:
+        raise HTTPException(400, f"未知周期 {bar}，可选 {list(BARS)}")
+    key = f"ohlc|{symbol}|{duration}|{bar}"
+    return _cached(key, TTL["ohlc"], lambda: _compute_ohlc(symbol, duration, bar))
 
 
-def _compute_ohlc(symbol: str, duration: str) -> dict:
+def _compute_ohlc(symbol: str, duration: str, bar: str = "day") -> dict:
     from ..data import get_data
     from ..indicators import ema, sma, bollinger
 
+    bar_size = BARS[bar][0]
     try:
-        df = _run_in_loop(lambda: get_data(symbol, duration=duration))
+        df = _run_in_loop(lambda: get_data(symbol, bar_size=bar_size,
+                                           duration=duration))
     except Exception as e:                                     # noqa: BLE001
         raise HTTPException(400, f"取数失败 {symbol}: {str(e)[:120]}")
     if df is None or not len(df):
@@ -192,7 +227,16 @@ def _compute_ohlc(symbol: str, duration: str) -> dict:
 
     d = df.reset_index()
     tcol = d.columns[0]
-    times = pd.to_datetime(d[tcol]).dt.strftime("%Y-%m-%d").tolist()
+    tser = pd.to_datetime(d[tcol])
+    if bar in INTRADAY:
+        # lightweight-charts 的分钟级必须用 UNIX 秒；把盘中时间当 UTC 打包，
+        # 前端显示的就是交易所本地原始时间
+        times = [int(pd.Timestamp(t).tz_localize("UTC").timestamp())
+                 for t in tser]
+        tlabel = tser.dt.strftime("%m-%d %H:%M").tolist()
+    else:
+        times = tser.dt.strftime("%Y-%m-%d").tolist()
+        tlabel = times
 
     bars = [{
         "time": t,
@@ -211,7 +255,7 @@ def _compute_ohlc(symbol: str, duration: str) -> dict:
     } for t, v, c, o in zip(times, df["volume"], d["close"], d["open"])]
 
     return {
-        "symbol": symbol,
+        "symbol": symbol, "bar": bar, "bar_label": BARS[bar][2],
         "bars": bars,
         "volume": vol,
         "ma20": s(sma(close, 20)),
@@ -219,10 +263,10 @@ def _compute_ohlc(symbol: str, duration: str) -> dict:
         "ema12": s(ema(close, 12)),
         "bb_upper": s(bollinger(close, 20, 2.0)["upper"]),
         "bb_lower": s(bollinger(close, 20, 2.0)["lower"]),
-        "times": times,
+        "times": times, "time_labels": tlabel,
         "last": round(float(close.iloc[-1]), 4),
         "prev_close": round(float(close.iloc[-2]), 4) if len(close) > 1 else None,
-        "start": times[0], "end": times[-1], "count": len(bars),
+        "start": str(tlabel[0]), "end": str(tlabel[-1]), "count": len(bars),
     }
 
 
@@ -372,6 +416,76 @@ def portfolio_schemes():
         return {"rows": [], "columns": []}
     d = _json_safe(df)
     return {"rows": d.to_dict(orient="records"), "columns": list(d.columns)}
+
+
+@app.get("/api/portfolio_equity")
+def portfolio_equity(strategy: str = "ADX趋势过滤", scheme: str = "equal"):
+    """现算一个组合：strategy × 8 标的 × scheme，返回净值/权重/指标。"""
+    key = f"pf|{strategy}|{scheme}"
+    return _cached(key, 1800, lambda: _compute_portfolio(strategy, scheme))
+
+
+def _compute_portfolio(strategy: str, scheme: str) -> dict:
+    from ..data import get_data
+    from ..strategies import create
+    from ..portfolio import run_portfolio
+
+    syms = _discover_symbols()
+    if len(syms) < 2:
+        raise HTTPException(404, "缓存标的不足，无法构建组合")
+
+    def _job():
+        data = {}
+        for s in syms:
+            try:
+                data[s] = get_data(s, duration="5 Y")
+            except Exception:                                  # noqa: BLE001
+                continue
+        sig = {s: create(strategy).signals(df) for s, df in data.items()}
+        return run_portfolio(data, sig, name=strategy, scheme=scheme)
+
+    try:
+        res = _run_in_loop(_job, timeout=240)
+    except Exception as e:                                     # noqa: BLE001
+        raise HTTPException(400, f"组合计算失败: {str(e)[:160]}")
+
+    eq = res.equity / res.equity.iloc[0] * 100
+    times = pd.to_datetime(res.equity.index).strftime("%Y-%m-%d").tolist()
+    equity = [{"time": t, "value": round(float(v), 2)} for t, v in zip(times, eq.values)]
+
+    # 基准：等权买入持有（各自归一到 100 后取平均，近似每日再平衡）
+    from ..data import get_data as _gd
+    bench_df = pd.DataFrame({
+        s: (lambda df: df["close"] / df["close"].iloc[0] * 100)(_gd(s, duration="5 Y"))
+        for s in res.weights.columns})
+    bench_avg = bench_df.mean(axis=1).reindex(res.equity.index).ffill()
+    benchmark = [{"time": t, "value": round(float(v), 2)}
+                 for t, v in zip(times, bench_avg.values)]
+
+    # 权重：转成逐标的折线序列
+    w = res.weights
+    w_times = pd.to_datetime(w.index).strftime("%Y-%m-%d").tolist()
+    weight_series = []
+    palette = ['#2962ff', '#f23645', '#089981', '#e0b64a', '#7b61ff',
+               '#00bcd4', '#ff7043', '#9ccc65']
+    for i, col in enumerate(w.columns):
+        weight_series.append({
+            "name": col, "color": palette[i % len(palette)],
+            "current": round(float(w[col].iloc[-1]), 4),
+            "data": [{"time": t, "value": round(float(v), 4)}
+                     for t, v in zip(w_times, w[col].values)],
+        })
+
+    metrics = {k: (None if (isinstance(v, float) and np.isnan(v)) else v)
+               for k, v in res.metrics.items()}
+    contrib = {k: round(float(v), 4) for k, v in res.contributions.items()}
+
+    return {
+        "strategy": strategy, "scheme": scheme,
+        "times": times, "equity": equity, "benchmark": benchmark,
+        "weights": weight_series, "metrics": metrics,
+        "contributions": contrib, "symbols": list(res.weights.columns),
+    }
 
 
 @app.get("/api/walkforward")

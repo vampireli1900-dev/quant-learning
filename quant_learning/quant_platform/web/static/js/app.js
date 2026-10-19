@@ -13,12 +13,22 @@ const state = {
   symbol: 'SPY',
   strategy: 'ADX趋势过滤',
   duration: '5 Y',
+  bar: 'day',                       // day/week/hour/min15
   view: 'chart',
   ohlc: null,
   signals: null,
   overlays: { ma: true, bb: false, sig: true, vol: true },
   charts: {},
 };
+
+/* 非日线周期使用固定区间（日线周期跟随周期下拉框） */
+const BAR_CFG = {
+  day:   { dur: null },
+  week:  { dur: '5 Y' },
+  hour:  { dur: '2 Y' },
+  min15: { dur: '1 M' },
+};
+const BAR_LABEL = { day: '日线', week: '周线', hour: '1小时', min15: '15分钟' };
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -98,7 +108,13 @@ async function boot() {
   sel.innerHTML = meta.strategy_names.map(n =>
     `<option value="${n}"${n === state.strategy ? ' selected' : ''}>${n}</option>`).join('');
   sel.onchange = () => { state.strategy = sel.value; loadSignals(); syncStrategyList(); };
-  $('#durationSel').onchange = (e) => { state.duration = e.target.value; reloadAll(); };
+  $('#durationSel').onchange = (e) => {
+    state.duration = e.target.value;
+    if (state.bar !== 'day') setBar('day');      // 区间下拉只对日线生效
+    else reloadAll();
+  };
+  // 周期切换
+  $$('#barToggle .sw').forEach(b => b.onclick = () => setBar(b.dataset.bar));
 
   // 左侧策略列表（带类别）
   const list = $('#strategyList');
@@ -116,9 +132,23 @@ async function boot() {
     `<option value="${s}"${s === state.symbol ? ' selected' : ''}>${s}</option>`).join('');
   eqs.onchange = () => loadEquityCurves(eqs.value);
 
+  // 组合页
+  const pfs = $('#pfStrategySel');
+  pfs.innerHTML = meta.strategy_names.map(n =>
+    `<option value="${n}"${n === 'ADX趋势过滤' ? ' selected' : ''}>${n}</option>`).join('');
+  pfs.onchange = () => loadPortfolio();
+  $('#pfSchemeSel').onchange = () => loadPortfolio();
+  $('#pfRefresh').onclick = () => loadPortfolio();
+
   bindNav(); bindOverlays();
   await reloadAll();
   loadRanking(); loadRiskViews(); loadWatchlist(); loadAccount(); loadPaper();
+
+  // 市场时钟 + 自动刷新
+  tickClock(); setInterval(tickClock, 1000);
+  setInterval(loadAccount, 30000);
+  setInterval(loadPaper, 120000);
+  setInterval(() => loadWatchlist(true), 300000);
 
   $('#boot').classList.add('hide');
   setTimeout(() => { $('#boot').remove(); }, 600);
@@ -137,6 +167,7 @@ function bindNav() {
     $$('.view').forEach(v => v.classList.remove('active'));
     $('#view-' + state.view).classList.add('active');
     if (state.view === 'equity') loadEquityCurves($('#eqSymbolSel').value);
+    if (state.view === 'portfolio' && !state.pfLoaded) loadPortfolio();
     requestAnimationFrame(() => resizeCharts());
   });
 }
@@ -161,17 +192,30 @@ function setSymbol(s) {
   reloadAll();
 }
 
+function setBar(bar) {
+  if (state.bar === bar) return;
+  state.bar = bar;
+  $$('#barToggle .sw').forEach(b => b.classList.toggle('active', b.dataset.bar === bar));
+  // 分钟/小时线没有对齐的回测信号，自动关掉信号标记
+  if (bar !== 'day') { state.overlays.sig = false; $('#overlayToggle .sw[data-ov="sig"]').classList.remove('active'); }
+  reloadAll();
+  toast(`已切换到${BAR_LABEL[bar]}` + (bar !== 'day' ? '（信号回测仅在日线）' : ''));
+}
+
 async function reloadAll() {
-  await Promise.all([loadOHLC(), loadSignals()]);
-  loadEquityCurves(state.symbol);
+  await Promise.all([loadOHLC()]);
+  if (state.bar === 'day') await loadSignals();
+  if (state.view === 'equity') loadEquityCurves($('#eqSymbolSel').value);
 }
 
 /* ---------------- K 线 ---------------- */
 async function loadOHLC() {
-  const d = await api(`/api/ohlc?symbol=${encodeURIComponent(state.symbol)}&duration=${encodeURIComponent(state.duration)}`);
+  const dur = BAR_CFG[state.bar].dur || state.duration;
+  const d = await api(`/api/ohlc?symbol=${encodeURIComponent(state.symbol)}` +
+    `&duration=${encodeURIComponent(dur)}&bar=${state.bar}`);
   state.ohlc = d;
   $('#chartTitle').textContent = `${d.symbol} · ${state.strategy}`;
-  $('#chartTag').textContent = `日线 ${d.count} 根 · ${d.start} ~ ${d.end}`;
+  $('#chartTag').textContent = `${BAR_LABEL[d.bar] || '日线'} ${d.count} 根 · ${d.start} ~ ${d.end}`;
 
   const chg = d.prev_close ? (d.last / d.prev_close - 1) : 0;
   $('#ticker').innerHTML =
@@ -189,7 +233,8 @@ function baseChartOpts() {
     },
     grid: { vertLines: { color: TV.grid }, horzLines: { color: TV.grid } },
     rightPriceScale: { borderColor: TV.border, scaleMargins: { top: 0.12, bottom: 0.08 } },
-    timeScale: { borderColor: TV.border, timeVisible: false, rightOffset: 4 },
+    timeScale: { borderColor: TV.border, timeVisible: state.bar !== 'day',
+                 secondsVisible: false, rightOffset: 4 },
     crosshair: {
       mode: 0,
       vertLine: { color: '#4a5163', width: 1, style: 3, labelBackgroundColor: TV.accent },
@@ -262,7 +307,8 @@ function renderPriceChart() {
     vel.style.display = 'none';
   }
 
-  if (state.overlays.sig && state.signals && state.signals.symbol === d.symbol) {
+  if (state.overlays.sig && state.bar === 'day' && state.signals &&
+      state.signals.symbol === d.symbol) {
     try { state.charts.seriesCandle.setMarkers(state.signals.markers); } catch (e) {}
   }
 }
@@ -284,6 +330,11 @@ function resizeCharts() {
   }
   if (state.charts.equity && eql.clientWidth) {
     state.charts.equity.applyOptions({ width: eql.clientWidth, height: eql.clientHeight });
+  }
+  const pel = $('#pfEquityChart'), pwel = $('#pfWeightChart');
+  if (state.charts.pfEq && pel.clientWidth) {
+    state.charts.pfEq.applyOptions({ width: pel.clientWidth, height: pel.clientHeight });
+    state.charts.pfW.applyOptions({ width: pwel.clientWidth, height: pwel.clientHeight });
   }
 }
 
@@ -350,6 +401,7 @@ async function loadEquityCurves(symbol) {
   state.charts.equity = c;
   const palette = ['#2962ff', '#f23645', '#089981', '#e0b64a', '#7b61ff',
     '#00bcd4', '#ff7043', '#9ccc65'];
+  const seriesRefs = [];
   d.series.forEach((s, i) => {
     const ls = c.addLineSeries({
       color: palette[i % palette.length], lineWidth: 2,
@@ -357,10 +409,148 @@ async function loadEquityCurves(symbol) {
       crosshairMarkerVisible: true,
     });
     ls.setData(s.data);
+    seriesRefs.push({ name: s.name, ls, visible: true });
   });
   c.timeScale().fitContent();
-  $('#equityLegend').innerHTML = d.series.map((s, i) =>
-    `<span><i style="background:${palette[i % palette.length]}"></i>${s.name}</span>`).join('');
+  // 图例可点击显隐
+  const leg = $('#equityLegend');
+  leg.innerHTML = d.series.map((s, i) =>
+    `<span class="lg-item" data-i="${i}"><i style="background:${palette[i % palette.length]}"></i>${s.name}</span>`).join('');
+  leg.querySelectorAll('.lg-item').forEach(item => item.onclick = () => {
+    const ref = seriesRefs[+item.dataset.i];
+    ref.visible = !ref.visible;
+    try { ref.ls.applyOptions({ visible: ref.visible }); } catch (e) {}
+    item.classList.toggle('off', !ref.visible);
+  });
+}
+
+/* ---------------- 组合视图 ---------------- */
+async function loadPortfolio() {
+  const strat = $('#pfStrategySel').value;
+  const scheme = $('#pfSchemeSel').value;
+  const d = await api(`/api/portfolio_equity?strategy=${encodeURIComponent(strat)}` +
+    `&scheme=${encodeURIComponent(scheme)}`);
+  state.pfLoaded = true;
+  $('#pfTag').textContent = `${d.strategy} · ${schemeLabel(scheme)} · ${d.symbols.length} 标的`;
+
+  // 指标卡
+  const m = d.metrics || {};
+  const cards = [
+    { k: '组合年化', v: m['年化收益率'], s: '%', sub: '基准=等权买入持有' },
+    { k: '组合夏普', v: m['夏普比率'], s: '', sub: '单标的平均约 0.55' },
+    { k: '最大回撤', v: m['最大回撤'], s: '%', sub: '组合分散化后显著收窄' },
+    { k: '卡玛比率', v: m['卡玛比率'], s: '', sub: '年化 / 回撤' },
+  ];
+  const wrap = $('#pfCards');
+  wrap.innerHTML = cards.map((c, i) =>
+    `<div class="card"><div class="k">${c.k}</div>
+      <div class="v ${cls(c.v)}" data-pf="${i}">0</div>
+      <div class="s">${c.sub}</div></div>`).join('');
+  cards.forEach((c, i) => {
+    const el = wrap.querySelector(`[data-pf="${i}"]`);
+    const raw = (c.s === '%') ? (c.v || 0) * 100 : (c.v || 0);
+    countUp(el, raw, 2, c.s);
+  });
+
+  // 组合净值 vs 基准
+  const el = $('#pfEquityChart');
+  if (state.charts.pfEq) { state.charts.pfEq.remove(); state.charts.pfEq = null; }
+  const c = LightweightCharts.createChart(el, {
+    ...baseChartOpts(), width: el.clientWidth, height: el.clientHeight,
+    timeScale: { ...baseChartOpts().timeScale, timeVisible: false },
+  });
+  state.charts.pfEq = c;
+  c.addLineSeries({ color: TV.accent, lineWidth: 2, title: '组合',
+    priceLineVisible: false, lastValueVisible: true }).setData(d.equity);
+  c.addLineSeries({ color: '#787b86', lineWidth: 1, lineStyle: 2, title: '基准',
+    priceLineVisible: false, lastValueVisible: false }).setData(d.benchmark);
+  c.timeScale().fitContent();
+  $('#pfLegend').innerHTML =
+    `<span><i style="background:${TV.accent}"></i>${d.strategy}（${schemeLabel(scheme)}）</span>
+     <span><i style="background:#787b86"></i>等权买入持有基准</span>`;
+
+  // 权重折线
+  const wel = $('#pfWeightChart');
+  if (state.charts.pfW) { state.charts.pfW.remove(); state.charts.pfW = null; }
+  const wc = LightweightCharts.createChart(wel, {
+    ...baseChartOpts(), width: wel.clientWidth, height: wel.clientHeight,
+    timeScale: { ...baseChartOpts().timeScale, timeVisible: false },
+    localization: { priceFormatter: (p) => (p * 100).toFixed(0) + '%' },
+  });
+  state.charts.pfW = wc;
+  const wRefs = [];
+  (d.weights || []).forEach(w => {
+    const ls = wc.addLineSeries({ color: w.color, lineWidth: 1,
+      priceLineVisible: false, lastValueVisible: false });
+    ls.setData(w.data);
+    wRefs.push({ name: w.name, ls, visible: true, current: w.current });
+  });
+  wc.timeScale().fitContent();
+  const wleg = $('#pfLegend');
+  $('#pfWeightNow').textContent = '当前权重：' +
+    (d.weights || []).filter(w => w.current > 0.005)
+      .map(w => `${w.name} ${(w.current * 100).toFixed(0)}%`).join(' · ') || '空仓';
+  // 权重图例（点击显隐）
+  document.getElementById('pfWeightLegend')?.remove();
+  const wbox = document.createElement('div');
+  wbox.className = 'legend';
+  wbox.id = 'pfWeightLegend';
+  wbox.style.padding = '6px 14px';
+  wbox.innerHTML = (d.weights || []).map((w, i) =>
+    `<span class="lg-item" data-w="${i}"><i style="background:${w.color}"></i>${w.name}</span>`).join('');
+  $('#pfWeightChart').after(wbox);
+  wbox.querySelectorAll('.lg-item').forEach(item => item.onclick = () => {
+    const ref = wRefs[+item.dataset.w];
+    ref.visible = !ref.visible;
+    try { ref.ls.applyOptions({ visible: ref.visible }); } catch (e) {}
+    item.classList.toggle('off', !ref.visible);
+  });
+
+  // 方案对比表
+  await loadSchemeTable(strat, scheme);
+}
+
+function schemeLabel(s) {
+  return { equal: '等权', signal: '信号加权', vol_inverse: '波动率倒数',
+    risk_parity: '风险平价', vol_target: '波动率目标' }[s] || s;
+}
+
+let schemeData = null;
+async function loadSchemeTable(strat, curScheme) {
+  if (!schemeData) schemeData = await api('/api/portfolio_schemes');
+  const rows = schemeData.rows.filter(r => r['策略'] === strat);
+  const cols = ['权重方案', '年化收益率', '夏普比率', '最大回撤', '卡玛比率', '年化换手', '平均标的数量'];
+  $('#pfSchemeTable').innerHTML =
+    `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+    rows.map(r => `<tr data-scheme="${r['权重方案']}" class="${r['权重方案'] === curScheme ? 'hl' : ''}">
+      <td>${schemeLabel(r['权重方案'])}</td>
+      <td class="${cls(r['年化收益率'])}">${pct(r['年化收益率'], 1)}</td>
+      <td class="${cls(r['夏普比率'])}">${fmt(r['夏普比率'])}</td>
+      <td class="${cls(r['最大回撤'])}">${pct(r['最大回撤'], 1)}</td>
+      <td>${fmt(r['卡玛比率'])}</td>
+      <td>${fmt(r['年化换手'], 1)}</td>
+      <td>${fmt(r['平均标的数量'], 1)}</td></tr>`).join('') + '</tbody>';
+  $$('#pfSchemeTable tbody tr').forEach(tr => tr.onclick = () => {
+    $('#pfSchemeSel').value = tr.dataset.scheme;
+    loadPortfolio();
+  });
+}
+
+/* ---------------- 市场时钟 ---------------- */
+function tickClock() {
+  const now = new Date();
+  const opt = { timeZone: 'America/New_York', hour12: false };
+  $('#clockTime').textContent =
+    now.toLocaleTimeString('en-US', { ...opt, hour: '2-digit', minute: '2-digit' });
+  const parts = new Intl.DateTimeFormat('en-US',
+    { ...opt, weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(now);
+  const get = (k) => { const p = parts.find(x => x.type === k); return p ? p.value : ''; };
+  const h = (+get('hour')) % 24, m = +get('minute');
+  const mins = h * 60 + m;
+  const open = !['Sat', 'Sun'].includes(get('weekday')) && mins >= 570 && mins < 960;
+  const st = $('#clockState');
+  st.textContent = open ? '开市' : '休市';
+  st.className = 'clock-state ' + (open ? 'open' : 'closed');
 }
 
 /* ---------------- 排名表 ---------------- */

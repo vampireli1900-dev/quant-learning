@@ -24,9 +24,27 @@ from .base import DataRequest, DataSource, normalize_ohlcv
 try:
     from ib_insync import IB, Stock, Forex, Index, util
     IB_AVAILABLE = True
-except Exception:                                     # pragma: no cover
+except Exception as _e:                               # pragma: no cover
     IB_AVAILABLE = False
     IB = None  # type: ignore
+    IB_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
+    import sys as _sys
+    print(f"[ibkr_source] ib_insync 首次导入失败: {IB_IMPORT_ERROR}",
+          file=_sys.stderr, flush=True)
+
+
+def _ensure_ib_available() -> bool:
+    """导入失败时给一次惰性重试的机会（偶发的进程内导入失败可自愈）。"""
+    global IB_AVAILABLE, IB_IMPORT_ERROR, IB, Stock, Forex, Index, util
+    if IB_AVAILABLE:
+        return True
+    try:
+        from ib_insync import IB, Stock, Forex, Index, util  # noqa: F811
+        IB_AVAILABLE = True
+        return True
+    except Exception as _e:
+        IB_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
+        return False
 
 
 # 港股的交易所/币种映射（按股票代码段判断）
@@ -45,8 +63,10 @@ class IBKRSource(DataSource):
     @property
     def ib(self) -> IB:
         if self._ib is None or not self._ib.isConnected():
-            if not IB_AVAILABLE:
-                raise RuntimeError("未安装 ib_insync，无法使用 IBKR 数据源")
+            if not _ensure_ib_available():
+                raise RuntimeError(
+                    f"ib_insync 不可用（{globals().get('IB_IMPORT_ERROR', '?')}），"
+                    "无法使用 IBKR 数据源")
             # 自动挑选一个空闲的 clientId：多进程/多窗口并行时，
             # TWS 会拒绝"已被占用"的 clientId（错误 326）。
             last_err = None
@@ -84,7 +104,7 @@ class IBKRSource(DataSource):
         self._ib = None
 
     def available(self) -> bool:
-        if not IB_AVAILABLE:
+        if not _ensure_ib_available():
             return False
         try:
             return self.ib.isConnected()

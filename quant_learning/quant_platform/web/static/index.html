@@ -53,6 +53,10 @@
         </select>
       </label>
       <div class="live-badge"><i></i><span id="liveTxt">SIM</span></div>
+      <div class="clock" id="clock" title="美东时间 · 美股 9:30-16:00 开盘">
+        <span class="clock-tz">ET</span><span id="clockTime">--:--</span>
+        <span class="clock-state" id="clockState">—</span>
+      </div>
     </div>
   </header>
 
@@ -71,6 +75,16 @@
           <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>净值对比</span>
+        </button>
+        <button class="nav-item" data-view="portfolio">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none"
+            stroke="currentColor" stroke-width="2"/><circle cx="5" cy="6" r="2.2" fill="none"
+            stroke="currentColor" stroke-width="1.6"/><circle cx="19" cy="6" r="2.2" fill="none"
+            stroke="currentColor" stroke-width="1.6"/><circle cx="5" cy="18" r="2.2" fill="none"
+            stroke="currentColor" stroke-width="1.6"/><circle cx="19" cy="18" r="2.2" fill="none"
+            stroke="currentColor" stroke-width="1.6"/><path d="M6.8 7.4l3.4 3m7-3l-3.4 3M6.8 16.6l3.4-3m7 3l-3.4-3"
+            fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span>组合</span>
         </button>
         <button class="nav-item" data-view="rank">
           <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"
@@ -113,6 +127,12 @@
               <span class="tag" id="chartTag">日线</span>
             </div>
             <div class="ph-right">
+              <div class="switch-group" id="barToggle">
+                <button class="sw active" data-bar="day">日</button>
+                <button class="sw" data-bar="week">周</button>
+                <button class="sw" data-bar="hour">1时</button>
+                <button class="sw" data-bar="min15">15分</button>
+              </div>
               <div class="switch-group" id="overlayToggle">
                 <button class="sw active" data-ov="ma">MA</button>
                 <button class="sw" data-ov="bb">布林</button>
@@ -148,6 +168,44 @@
           </div>
           <div id="equityChart" class="chart equity-chart"></div>
           <div class="legend" id="equityLegend"></div>
+        </div>
+      </div>
+
+      <!-- 视图：组合 -->
+      <div class="view" id="view-portfolio">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>组合回测</h2>
+              <span class="tag" id="pfTag">—</span></div>
+            <div class="ph-right">
+              <select id="pfStrategySel" class="sel"></select>
+              <select id="pfSchemeSel" class="sel">
+                <option value="equal">等权</option>
+                <option value="signal">信号加权</option>
+                <option value="vol_inverse">波动率倒数</option>
+                <option value="risk_parity">风险平价</option>
+                <option value="vol_target">波动率目标</option>
+              </select>
+              <button class="btn" id="pfRefresh">刷新</button>
+            </div>
+          </div>
+          <div class="grid-3" id="pfCards" style="padding:10px 10px 0"></div>
+          <div id="pfEquityChart" class="chart equity-chart"></div>
+          <div class="legend" id="pfLegend"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>标的权重</h2>
+            <span class="tag">逐日权重 · 悬停图例可隐藏</span></div>
+            <div class="ph-right"><span class="muted" id="pfWeightNow"></span></div>
+          </div>
+          <div id="pfWeightChart" class="chart" style="height:230px"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>权重方案对比</h2>
+            <span class="tag">enhanced 实验结果</span></div></div>
+          <div class="table-wrap"><table class="tbl" id="pfSchemeTable"></table></div>
+          <p class="hint">实测结论：6 个策略里等权全部最优；波动率倒数/风险平价/波动率目标
+            结果一致且更差 —— 都在系统性压低仓位。</p>
         </div>
       </div>
 

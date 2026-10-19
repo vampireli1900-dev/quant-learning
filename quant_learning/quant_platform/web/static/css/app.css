@@ -257,6 +257,25 @@ table.tbl tbody tr{cursor:pointer}
 }
 .bar-cell span{position:relative; z-index:1}
 
+/* ---------- 市场时钟 ---------- */
+.clock{
+  display:flex; align-items:center; gap:7px; padding:4px 10px; border-radius:20px;
+  background:var(--bg2); border:1px solid var(--border); font-size:11px; color:var(--text-dim);
+}
+.clock-tz{color:var(--muted); letter-spacing:.5px}
+.clock-time, #clockTime{font-variant-numeric:tabular-nums; font-weight:600; color:var(--text)}
+.clock-state{padding:1px 7px; border-radius:10px; font-size:10px}
+.clock-state.open{background:rgba(242,54,69,.14); color:var(--up)}
+.clock-state.closed{background:rgba(120,123,134,.14); color:var(--muted)}
+
+/* ---------- 图例开关 ---------- */
+.lg-item{cursor:pointer; transition:opacity .18s var(--ease); user-select:none}
+.lg-item:hover{opacity:.8}
+.lg-item.off{opacity:.32}
+.lg-item.off i{background:var(--muted)!important}
+table.tbl tbody tr.hl{background:rgba(41,98,255,.10)}
+table.tbl tbody tr.hl td:first-child{color:#fff; font-weight:600}
+
 /* ---------- Toast / 进度条 ---------- */
 .toast{
   position:fixed; left:50%; bottom:26px; transform:translate(-50%,20px);
