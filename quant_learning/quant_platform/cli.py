@@ -110,6 +110,42 @@ def cmd_experiment(args):
     print(f"HTML 报告: {path}")
 
 
+def cmd_significance(args):
+    """统计显著性体检：夏普置信区间 / PSR / DSR / 最小样本量 / 随机信号检验。"""
+    from .data import get_data
+    from .strategies import create
+    from .backtest import run_backtest
+    from .stats import batch_significance, random_signal_test
+    df = get_data(args.symbol, duration=args.duration)
+    names = args.strategy or ["双均线交叉", "RSI均值回归", "唐奇安突破",
+                              "ZScore回归", "ADX趋势过滤", "时间序列动量"]
+    rets, sigs = {}, {}
+    for n in names:
+        s = create(n).signals(df)
+        sigs[n] = s
+        rets[n] = run_backtest(df, s, name=n, symbol=args.symbol).returns
+    b = batch_significance(rets)
+    cols = ["策略", "夏普比率", "PSR(>0)", "DSR", "夏普95%下界", "夏普95%上界",
+            "SR0(期望虚高线)", "样本数", "最小样本量(证明夏普>0)"]
+    print(f"=== {args.symbol} 显著性体检（{len(names)} 个策略互为试验次数）===")
+    _print_df(b[[c for c in cols if c in b.columns]])
+    print("\n判据：PSR>0.95 且 DSR>0.95 才算真的显著；"
+          "最小样本量 > 实际样本数 = 数据不够，结论不可信")
+    if args.random:
+        print("\n=== 随机信号置换检验 ===")
+        rows = []
+        for n in args.random:
+            if n in sigs:
+                r = random_signal_test(df, sigs[n], n_iter=args.iter)
+                r["策略"] = n
+                rows.append(r)
+        if rows:
+            out = pd.DataFrame(rows)
+            front = ["策略", "真实夏普", "随机夏普均值", "随机夏普95分位",
+                     "真实持仓占比", "随机持仓占比", "p值", "结论"]
+            _print_df(out[[c for c in front if c in out.columns]])
+
+
 def cmd_portfolio(args):
     """多标的组合回测。"""
     from .data import get_data
@@ -247,6 +283,15 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--config", default="configs/demo.yaml")
     e.add_argument("--name", default=None)
     e.set_defaults(func=cmd_experiment)
+
+    sg = sub.add_parser("significance", help="统计显著性体检")
+    sg.add_argument("symbol")
+    sg.add_argument("--strategy", nargs="+", default=None)
+    sg.add_argument("--random", nargs="*", default=None,
+                    help="对指定策略做随机信号置换检验")
+    sg.add_argument("--iter", type=int, default=300)
+    sg.add_argument("--duration", default="5 Y")
+    sg.set_defaults(func=cmd_significance)
 
     pf = sub.add_parser("portfolio", help="多标的组合回测")
     pf.add_argument("symbols", nargs="+")
