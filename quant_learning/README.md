@@ -103,12 +103,22 @@ quant_learning/
 │   ├── live/
 │   │   ├── broker.py             # 实盘接口（默认 dry-run + 风控限额）
 │   │   └── paper.py              # 模拟盘 paper trading 守护进程
+│   ├── db/                       # SQL 数据库持久层
+│   │   ├── schema.py             # 14 张表 ORM 模型（五层）
+│   │   ├── session.py            # engine / session_scope / init_db
+│   │   ├── repository.py         # 数据访问层（含只读 SQL）
+│   │   ├── features.py           # 训练集构建与读回
+│   │   └── migrate.py            # CSV 缓存导入 / 导出 / VACUUM
 │   └── cli.py                    # 命令行入口
 ├── configs/                      # 实验配置（YAML）
 │   ├── demo.yaml                 # 冒烟测试
 │   ├── main_compare.yaml         # 主对比实验
-│   └── walkforward_validation.yaml
+│   ├── walkforward_validation.yaml
+│   └── db_check.yaml             # 数据库落库验证
 ├── scripts/prefetch_data.py      # 预拉数据
+├── scripts/paper_ops.py          # 模拟盘真实委托运营
+├── scripts/ml_from_db.py         # 从数据库读训练集训练模型
+├── data/                         # SQLite 数据库（.gitignore 已排除）
 ├── data_cache/                   # 数据缓存（按 数据源_标的_周期_时长 命名）
 ├── results/                      # 实验结果（CSV + HTML 报告）
 ├── _env_check/                   # 环境检测脚本与报告
