@@ -223,6 +223,171 @@ def cmd_signal(args):
     _print_df(mon.scan())
 
 
+# ---------------------------------------------------------------------------
+# 数据库（SQL）子命令
+# ---------------------------------------------------------------------------
+def cmd_db_init(args):
+    """建库建表 / 重置 / 查看连接信息。"""
+    from .db import db_path_or_dsn, db_file_size, init_db, reset_db, is_sqlite
+    from .db.schema import TABLE_GROUPS
+
+    if args.reset:
+        if not args.yes:
+            print("危险：--reset 会清空所有数据！确认请加 --yes")
+            return
+        engine = reset_db()
+        print(f"已重置数据库：{db_path_or_dsn()}")
+    else:
+        engine = init_db()
+
+    print(f"数据库位置 : {db_path_or_dsn()}")
+    print(f"方言       : {engine.dialect.name}")
+    size = db_file_size()
+    if size is not None:
+        print(f"文件大小   : {size / 1024 / 1024:.2f} MB")
+    print("\n表结构：")
+    for group, names in TABLE_GROUPS.items():
+        print(f"  {group}")
+        for n in names:
+            print(f"    - {n}")
+    print("\n提示：设置环境变量 QP_DATABASE_URL 即可切换到 PostgreSQL / MySQL，"
+          "无需改动任何业务代码。")
+
+
+def cmd_db_stats(args):
+    """各表行数统计。"""
+    from .db import table_stats
+    df = table_stats()
+    if not len(df):
+        print("（数据库为空或不可用，先运行 db-init）")
+        return
+    _print_df(df)
+    print(f"\n合计 {int(df['行数'].sum()):,} 行")
+
+
+def cmd_db_query(args):
+    """执行只读 SQL；不给 --sql 时进入交互模式。"""
+    from .db import example_queries, run_sql
+
+    def _run(sql: str):
+        try:
+            r = run_sql(sql, limit=args.limit)
+        except Exception as e:                                   # noqa: BLE001
+            print(f"[错误] {e}")
+            return
+        if not r["columns"]:
+            print("（无结果）")
+            return
+        df = pd.DataFrame(r["rows"], columns=r["columns"])
+        print(df.to_string())
+        print(f"\n{r['rowcount']} 行 | {r['elapsed_ms']} ms")
+
+    if args.list:
+        for i, q in enumerate(example_queries(), 1):
+            print(f"[{i}] {q['名称']}\n    {q['sql']}\n")
+        return
+
+    if args.example:
+        qs = example_queries()
+        if not (1 <= args.example <= len(qs)):
+            print(f"示例编号需在 1..{len(qs)}")
+            return
+        print(f"-- {qs[args.example - 1]['名称']}")
+        _run(qs[args.example - 1]["sql"])
+        return
+
+    if args.sql:
+        _run(args.sql)
+        return
+
+    print("进入 SQL 交互模式（只读；输入 exit 退出，sample 查看示例）")
+    while True:
+        try:
+            line = input("sql> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line.lower() in ("exit", "quit", "q"):
+            break
+        if line.lower() == "sample":
+            for i, q in enumerate(example_queries(), 1):
+                print(f"[{i}] {q['名称']}")
+            continue
+        if line.lower().startswith("run "):
+            try:
+                line = example_queries()[int(line.split()[1]) - 1]["sql"]
+            except Exception:                                    # noqa: BLE001
+                print("用法：run <示例编号>")
+                continue
+        _run(line)
+
+
+def cmd_db_import(args):
+    """把 data_cache 下的 CSV 缓存导入 bars 表。"""
+    from pathlib import Path
+    from .db.migrate import import_cache
+    df = import_cache(Path(args.dir) if args.dir else None,
+                      refresh=args.refresh)
+    if not len(df):
+        print("没有导入任何文件")
+        return
+    ok = df[df["状态"] == "已导入"]
+    print(f"\n导入完成：{len(ok)}/{len(df)} 个文件，"
+          f"共 {int(ok['行数'].sum()):,} 行行情写入数据库")
+
+
+def cmd_db_coverage(args):
+    """行情覆盖情况：每个标的/周期多少根、起止时间。"""
+    from .db import bar_coverage
+    _print_df(bar_coverage())
+
+
+def cmd_db_ingests(args):
+    """API 抓取日志。"""
+    from .db import recent_ingests
+    _print_df(recent_ingests(limit=args.limit))
+
+
+def cmd_db_features(args):
+    """构建/查看训练集（落库到 feature_sets / features）。"""
+    from .db.features import build_training_set, describe_feature_set
+    from .db import list_feature_sets
+
+    if args.describe:
+        _print_df(describe_feature_set(args.describe))
+        return
+    if args.list:
+        _print_df(list_feature_sets())
+        return
+
+    build_training_set(symbols=args.symbols, name=args.name,
+                       duration=args.duration, bar_size=args.bar_size,
+                       horizon=args.horizon, label_mode=args.label,
+                       description=args.desc or "",
+                       train_ratio=args.train_ratio,
+                       from_db=not args.no_from_db)
+
+
+def cmd_db_orders(args):
+    """查看委托记录 / 账户与持仓快照。"""
+    from .db import list_orders, account_curve
+
+    if args.account:
+        _print_df(account_curve(limit=args.limit))
+        return
+    _print_df(list_orders(limit=args.limit, symbol=args.symbol))
+
+
+def cmd_db_export(args):
+    """把库里的行情导出成 CSV。"""
+    from pathlib import Path
+    from .db.migrate import export_csv
+    export_csv(args.symbol, bar_size=args.bar_size,
+               out=Path(args.out) if args.out else None)
+
+
 def cmd_web(args):
     """启动 TradingView 风格的 Web 展示终端。"""
     from .web import run_server
@@ -367,6 +532,62 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--strategy", nargs="+", default=None)
     s.add_argument("--duration", default="2 Y")
     s.set_defaults(func=cmd_signal)
+
+    # ---------------- 数据库 ----------------
+    d = sub.add_parser("db-init", help="初始化数据库（建表）")
+    d.add_argument("--reset", action="store_true", help="清空并重建（危险）")
+    d.add_argument("--yes", action="store_true")
+    d.set_defaults(func=cmd_db_init)
+
+    ds = sub.add_parser("db-stats", help="各表行数统计")
+    ds.set_defaults(func=cmd_db_stats)
+
+    dq = sub.add_parser("db-query", help="执行只读 SQL（不给 --sql 则进入交互模式）")
+    dq.add_argument("--sql", default=None)
+    dq.add_argument("--limit", type=int, default=500)
+    dq.add_argument("--list", action="store_true", help="列出示例查询")
+    dq.add_argument("--example", type=int, default=None, help="执行第 N 个示例查询")
+    dq.set_defaults(func=cmd_db_query)
+
+    di = sub.add_parser("db-import", help="把 CSV 缓存导入数据库")
+    di.add_argument("--dir", default=None, help="缓存目录，默认 data_cache/")
+    di.add_argument("--refresh", action="store_true")
+    di.set_defaults(func=cmd_db_import)
+
+    dc = sub.add_parser("db-coverage", help="行情覆盖情况")
+    dc.set_defaults(func=cmd_db_coverage)
+
+    dl = sub.add_parser("db-ingests", help="API 抓取日志")
+    dl.add_argument("--limit", type=int, default=50)
+    dl.set_defaults(func=cmd_db_ingests)
+
+    df_ = sub.add_parser("db-features", help="构建/查看训练集")
+    df_.add_argument("--name", default="trainset")
+    df_.add_argument("--symbols", nargs="*",
+                     default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA"])
+    df_.add_argument("--duration", default="5 Y")
+    df_.add_argument("--bar-size", default="1 day")
+    df_.add_argument("--horizon", type=int, default=1, help="标签预测未来几根K线")
+    df_.add_argument("--label", choices=["ret", "sign"], default="ret")
+    df_.add_argument("--train-ratio", type=float, default=0.7)
+    df_.add_argument("--desc", default="")
+    df_.add_argument("--no-from-db", action="store_true",
+                     help="不从数据库读，直接走数据层（IB/yfinance）")
+    df_.add_argument("--list", action="store_true", help="列出已有训练集")
+    df_.add_argument("--describe", default=None, help="查看某训练集的字段统计")
+    df_.set_defaults(func=cmd_db_features)
+
+    do = sub.add_parser("db-orders", help="委托记录 / 账户快照")
+    do.add_argument("--limit", type=int, default=100)
+    do.add_argument("--symbol", default=None)
+    do.add_argument("--account", action="store_true", help="查看账户净值曲线")
+    do.set_defaults(func=cmd_db_orders)
+
+    de = sub.add_parser("db-export", help="导出库里行情到 CSV")
+    de.add_argument("symbol")
+    de.add_argument("--bar-size", default="1 day")
+    de.add_argument("--out", default=None)
+    de.set_defaults(func=cmd_db_export)
 
     w = sub.add_parser("web", help="启动 Web 展示终端")
     w.add_argument("--host", default="127.0.0.1")

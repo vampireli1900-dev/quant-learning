@@ -28,7 +28,7 @@ from ..backtest.engine import BacktestResult, backtest_buy_hold, run_backtest
 from ..backtest.metrics import compute_metrics, rank_strategies
 from ..backtest.optimizer import grid_search, overfitting_score
 from ..backtest.walkforward import WalkForwardResult, walk_forward
-from ..config import RESULTS_DIR, ensure_dirs
+from ..config import CONFIG, RESULTS_DIR, ensure_dirs
 from ..data import get_data
 from ..strategies import create, list_strategies
 
@@ -76,6 +76,7 @@ class ExperimentResult:
     by_symbol: pd.DataFrame = field(default_factory=pd.DataFrame)
     equity_curves: Dict[str, pd.Series] = field(default_factory=dict)  # key: 策略|标的
     benchmark_curves: Dict[str, pd.Series] = field(default_factory=dict)
+    trades: Dict[str, pd.DataFrame] = field(default_factory=dict)     # key: 策略|标的
     walkforward: Dict[Tuple[str, str], WalkForwardResult] = field(default_factory=dict)
     optimizations: Dict[str, pd.DataFrame] = field(default_factory=dict)
     data_info: Dict[str, dict] = field(default_factory=dict)
@@ -144,6 +145,17 @@ class ExperimentResult:
                 "slippage_rate": self.config.slippage_rate,
             },
         }
+        # ---- 落库到 SQL 数据库（旁路：失败不影响文件产出） ----
+        try:
+            dbcfg = getattr(CONFIG, "db", None)
+            if dbcfg and dbcfg.enabled and dbcfg.persist_experiments:
+                from ..db.repository import save_experiment
+                eid = save_experiment(self, equity_stride=max(1, int(dbcfg.equity_stride)))
+                if eid:
+                    summary["db_experiment_id"] = eid
+        except Exception as e:                                    # noqa: BLE001
+            print(f"[db] 实验落库失败（文件已保存）: {type(e).__name__}: {str(e)[:80]}")
+
         with open(out / "summary.json", "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
         return out
@@ -209,6 +221,8 @@ def run_experiment(cfg: ExperimentConfig, verbose: bool = True) -> ExperimentRes
                                  params={**strat.params}, **bt_kwargs)
                 key = f"{name}|{sym}"
                 res.equity_curves[key] = r.equity
+                if r.trades is not None and len(r.trades):
+                    res.trades[key] = r.trades
                 row = {"策略": name, "标的": sym,
                        "参数": json.dumps(strat.params, ensure_ascii=False),
                        **r.metrics}

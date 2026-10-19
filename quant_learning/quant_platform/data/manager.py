@@ -26,6 +26,25 @@ from .cache import DataCache
 from .ibkr_source import IBKRSource
 from .other_sources import CSVSource, SyntheticSource, YFinanceSource
 
+
+def persist_to_db(symbol: str, req: DataRequest, df, source: str) -> int:
+    """
+    把取到的数据写进 SQL 数据库（bars 表）。
+
+    设计原则：这是"旁路写入"——任何失败都只打日志，绝不中断取数流程。
+    实验能不能跑，不应该取决于数据库是否可用。
+    """
+    try:
+        from ..db.repository import upsert_bars
+        if not getattr(getattr(CONFIG, "db", None), "enabled", False):
+            return 0
+        if not getattr(CONFIG.db, "persist_bars", True):
+            return 0
+        return int(upsert_bars(symbol, req.bar_size, df, source=source))
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[db] 落库失败（不影响主流程）: {type(e).__name__}: {str(e)[:80]}")
+        return 0
+
 ensure_dirs()
 
 _CACHE = DataCache(enabled=CONFIG.cache_enabled)
@@ -90,21 +109,30 @@ def get_data(symbol: str,
                         merged = concat_and_dedup(cached, fresh)
                         if len(merged) > len(cached):
                             _CACHE.save(order[0], req, merged)
+                            persist_to_db(symbol, req, merged, order[0])
                             return merged
             except Exception:
                 pass                      # 增量更新失败就直接用旧缓存
+        persist_to_db(symbol, req, cached, order[0])
         return cached
 
     last_err = None
     for name in order:
         try:
             src = get_source(name)
-            df = src.fetch(req)
+            try:
+                from ..db.repository import ingest_logged
+                with ingest_logged(name, symbol, req.bar_size, req.duration) as log:
+                    df = src.fetch(req)
+                    log["rows"] = 0 if df is None else len(df)
+            except ImportError:
+                df = src.fetch(req)
             if df is not None and len(df):
                 if use_cache:
                     if cached is not None and len(cached):
                         df = concat_and_dedup(cached, df)
                     _CACHE.save(name, req, df)
+                persist_to_db(symbol, req, df, name)
                 return df
         except Exception as e:                       # noqa: BLE001
             last_err = e

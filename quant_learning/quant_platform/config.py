@@ -65,10 +65,26 @@ class BacktestConfig:
 
 
 @dataclass
+class DBConfig:
+    """数据库配置（SQL 持久化）。"""
+    # 留空 → 默认 SQLite：项目根目录 data/quant.db
+    # PostgreSQL: postgresql+psycopg2://user:pwd@host:5432/quant
+    # MySQL     : mysql+pymysql://user:pwd@host:3306/quant
+    url: str = ""
+    enabled: bool = True          # 总开关；关掉后所有写库静默跳过
+    echo: bool = False            # 打印 SQL（调试用）
+    persist_bars: bool = True     # API 行情落库
+    persist_experiments: bool = True   # 实验/回测结果落库
+    persist_orders: bool = True   # 委托与账户快照落库
+    equity_stride: int = 3        # 净值曲线抽样步长（1=不抽样）
+
+
+@dataclass
 class Config:
     """平台总配置。"""
     ib: IBConfig = field(default_factory=IBConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
+    db: DBConfig = field(default_factory=DBConfig)
     cache_enabled: bool = True
     cache_dir: str = str(CACHE_DIR)
     results_dir: str = str(RESULTS_DIR)
@@ -90,6 +106,8 @@ class Config:
             cfg.ib = IBConfig(**{**asdict(cfg.ib), **raw["ib"]})
         if "backtest" in raw:
             cfg.backtest = BacktestConfig(**{**asdict(cfg.backtest), **raw["backtest"]})
+        if "db" in raw:
+            cfg.db = DBConfig(**{**asdict(cfg.db), **raw["db"]})
         for k in ("cache_enabled", "cache_dir", "results_dir", "log_level"):
             if k in raw:
                 setattr(cfg, k, raw[k])
@@ -99,6 +117,7 @@ class Config:
         return {
             "ib": asdict(self.ib),
             "backtest": asdict(self.backtest),
+            "db": asdict(self.db),
             "cache_enabled": self.cache_enabled,
             "cache_dir": self.cache_dir,
             "results_dir": self.results_dir,
