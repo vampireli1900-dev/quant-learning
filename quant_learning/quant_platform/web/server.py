@@ -21,6 +21,7 @@ import json
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -541,6 +542,36 @@ def account():
                 "positions": [] if not len(pos)
                 else pos.to_dict(orient="records")}
     return _cached("account", TTL["account"], _load)
+
+
+@app.get("/api/account/board")
+def account_board_api(record: bool = True):
+    """
+    账户实时看板：净值 / 现金 / 可用资金 / 持仓估值 / 浮动盈亏 / 杠杆 +
+    账户快照历史（用于净值曲线）。
+
+    必须在 IB 工作线程里执行——ib_insync 的连接有线程亲和性，
+    跨线程/跨事件循环调用会报 'NoneType' object has no attribute 'send'。
+    """
+    from ..live.dashboard import account_board
+
+    try:
+        board = _run_in_loop(lambda: account_board(record=record), timeout=60)
+    except Exception as e:                                     # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+    board.setdefault("market_state", _market_state())
+    board["server_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return board
+
+
+def _market_state() -> dict:
+    """当前美股是否在交易时段（看板上的红/绿点）。"""
+    try:
+        from ..live.paper import is_us_market_open
+        return {"open": bool(is_us_market_open())}
+    except Exception:                                          # noqa: BLE001
+        return {"open": False, "error": "unavailable"}
 
 
 @app.get("/api/paper/state")

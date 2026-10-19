@@ -28,6 +28,32 @@ import pandas as pd
 from ..config import CONFIG, IBConfig
 
 
+def fx_rate(broker, base: str = "USD", quote: str = "HKD") -> float:
+    """
+    取汇率（如 USD.HKD）。
+
+    ib_insync 的 Forex(pair) 要求 6 位无点格式（USDHKD），写成 USD.HKD 会 assert
+    失败，所以这里统一拼好再传。取不到就用兜底 7.8 并提示——估值不能因为
+    汇率取不到就整个崩掉。
+    """
+    pair = f"{base.upper()}{quote.upper()}"
+    for what in ("MIDPOINT", "BID"):
+        try:
+            from ib_insync import Forex
+            c = Forex(pair)
+            broker.ib.qualifyContracts(c)
+            bars = broker.ib.reqHistoricalData(
+                c, "", "5 D", "1 day", what, False, 1, False)
+            if bars:
+                v = float(bars[-1].close)
+                if v > 0:
+                    return v
+        except Exception as e:                                 # noqa: BLE001
+            print(f"[提示] 汇率 {pair}/{what} 取失败：{str(e)[:60]}")
+    print("[提示] 使用兜底汇率 7.8")
+    return 7.8
+
+
 @dataclass
 class RiskLimits:
     """风控限额。"""
@@ -96,10 +122,23 @@ class IBBroker:
 
     # ---------------- 账户 / 持仓 ----------------
     def account(self) -> Dict[str, str]:
+        """
+        取账户摘要。
+
+        字段比 IB 官方 accountSummary 少，只留看板与风控真正会用的：
+            净值 NetLiquidation / 现金 TotalCashValue / 可用 AvailableFunds
+            购买力 BuyingPower / 持仓市值 GrossPositionValue
+            浮动盈亏 UnrealizedPnL / 已实现 RealizedPnL / 当日 DailyPnL
+            保证金 MaintMarginReq · InitMarginReq / 剩余流动性 ExcessLiquidity
+        多币种账户（如港币 DUT 账号）BASE 行可能为空，这里按"先 BASE、后兜底"取。
+        """
         ib = self.ib
         out = {"accounts": ",".join(ib.managedAccounts())}
         keys = ("NetLiquidation", "TotalCashValue", "BuyingPower",
-                "AvailableFunds", "GrossPositionValue", "Cushion")
+                "AvailableFunds", "GrossPositionValue", "Cushion",
+                "UnrealizedPnL", "RealizedPnL", "DailyPnL",
+                "MaintMarginReq", "InitMarginReq", "ExcessLiquidity",
+                "FullAvailableFunds")
         try:
             vals = ib.accountValues()
             # 先按基准币种取；多币种账户（如港币 DUT 账号）BASE 可能为空，
@@ -112,8 +151,19 @@ class IBBroker:
                 if v.tag in keys and v.tag not in out:
                     out[v.tag] = v.value
                     out.setdefault("currency", v.currency)
+            # "BASE" 不是真币种，只是 IB 的占位符；真正要展示的是净值那一行的
+            # 币种（DUT 账号 = HKD）。拿不到就退回 USD，别把 BASE 漏给前端。
+            real = ""
+            for v in vals:
+                if v.tag == "NetLiquidation" and v.currency not in ("BASE", ""):
+                    real = v.currency
+                    break
+            out["base_currency"] = real or (
+                out.get("currency") if out.get("currency") not in ("BASE", "", None)
+                else "USD")
         except Exception as e:                               # noqa: BLE001
             out["error"] = str(e)[:100]
+            out.setdefault("base_currency", "USD")
         return out
 
     def positions(self) -> pd.DataFrame:
@@ -128,6 +178,59 @@ class IBBroker:
                 "avg_cost": p.avgCost,
             })
         return pd.DataFrame(rows)
+
+    def mark_prices(self, symbols, exchange: str = "SMART",
+                    currency: str = "USD") -> Dict[str, float]:
+        """
+        批量取最新价，用于给持仓估值。
+
+        两级兜底，因为模拟账户经常没有实时行情订阅：
+            1) reqTickers 拿 last / close / marketPrice
+            2) 仍取不到的，回落到数据层最后一根日线收盘（缓存或 API）
+        返回 {SYMBOL: price}；全部失败时对应标的缺 key，调用方需自行处理。
+        """
+        import numpy as _np
+
+        out: Dict[str, float] = {}
+        syms = [str(s).upper() for s in (symbols or [])]
+        if not syms:
+            return out
+
+        try:
+            contracts = [self._contract(s, exchange, currency) for s in syms]
+            tickers = self.ib.reqTickers(*contracts)
+            for c, t in zip(contracts, tickers):
+                p = None
+                for attr in ("last", "close", "marketPrice"):
+                    v = getattr(t, attr, None)
+                    if callable(v):
+                        try:
+                            v = v()
+                        except Exception:                        # noqa: BLE001
+                            v = None
+                    try:
+                        f = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                    if not _np.isnan(f) and f > 0:
+                        p = f
+                        break
+                if p is not None:
+                    out[str(c.symbol).upper()] = p
+        except Exception as e:                                 # noqa: BLE001
+            print(f"[提示] 实时报价取失败：{str(e)[:60]}")
+
+        missing = [s for s in syms if s not in out]
+        if missing:
+            from ..data import get_data
+            for s in missing:
+                try:
+                    df = get_data(s, duration="1 M", bar_size="1 day")
+                except Exception:                              # noqa: BLE001
+                    continue
+                if df is not None and len(df):
+                    out[s] = float(df["close"].iloc[-1])
+        return out
 
     def open_orders(self) -> pd.DataFrame:
         ib = self.ib

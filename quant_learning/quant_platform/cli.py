@@ -482,6 +482,61 @@ def cmd_db_dump(args):
     print(f"已导出 DDL → {out}（{len(tables)} 张表，{out.stat().st_size} 字节）")
 
 
+def cmd_board(args):
+    """终端打印账户实时看板：净值 / 现金 / 可用 / 持仓估值 / 盈亏。"""
+    from .live.dashboard import account_board
+
+    d = account_board(record=not args.no_record, use_cache=False)
+    if not d.get("ok"):
+        print(f"未连接：{d.get('error')}")
+        return
+
+    t = d.get("totals") or {}
+    cur = t.get("基准币种") or ""
+
+    def n(k, dec=0):
+        v = t.get(k)
+        return "—" if v is None else f"{v:,.{dec}f}"
+
+    def s(k, dec=0):
+        v = t.get(k)
+        if v is None:
+            return "—"
+        return ("+" if v > 0 else "") + f"{v:,.{dec}f}"
+
+    def pc(v, dec=2):
+        if v is None:
+            return "—"
+        return ("+" if v > 0 else "") + f"{v * 100:.{dec}f}%"
+
+    print("=" * 58)
+    print(f"  账户实时看板   {(d.get('account') or {}).get('accounts', '—')}")
+    print(f"  {d.get('ts', '')}")
+    print("=" * 58)
+    print(f"  账户净值   {n('净值')} {cur}")
+    print(f"  账面现金   {n('现金')} {cur}   (占净值 {pc(t.get('现金占比'), 1)})")
+    print(f"  可用资金   {n('可用资金')} {cur}")
+    print(f"  购买力     {n('购买力')} {cur}")
+    print(f"  持仓市值   {n('持仓市值')} {cur}   ({t.get('持仓数', 0)} 个持仓)")
+    print(f"  浮动盈亏   {s('持仓盈亏')} {cur}   (按成本价)")
+    print(f"  当日盈亏   {s('当日盈亏')} {cur}")
+    print(f"  已实现盈亏 {s('已实现盈亏')} {cur}")
+    print(f"  杠杆       {n('杠杆', 2)}×     汇率 USD/{cur} {n('汇率', 4)}")
+    print("-" * 58)
+
+    rows = d.get("rows") or []
+    if rows:
+        print(f"  {'标的':<8}{'方向':<5}{'股数':>8}{'成本价':>10}{'现价':>10}"
+              f"{'市值':>12}{'浮动盈亏':>12}{'盈亏%':>9}{'权重':>8}")
+        for r in rows:
+            print(f"  {r['标的']:<8}{r['方向']:<5}{r['股数']:>8.0f}"
+                  f"{r['成本价']:>10.2f}{r['现价']:>10.2f}{r['市值']:>12.2f}"
+                  f"{r['浮动盈亏']:>12.2f}{pc(r['盈亏%']):>9}{pc(r['权重%'], 1):>8}")
+    else:
+        print("  当前无持仓")
+    print("=" * 58)
+
+
 def cmd_web(args):
     """启动 TradingView 风格的 Web 展示终端。"""
     from .web import run_server
@@ -697,6 +752,11 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("db-dump", help="导出建表 DDL 到 .sql 文件")
     dd.add_argument("--out", default="docs/schema.sql")
     dd.set_defaults(func=cmd_db_dump)
+
+    ab = sub.add_parser("board", help="打印账户实时看板（持仓/余额/估值）")
+    ab.add_argument("--no-record", action="store_true",
+                    help="本次不写数据库快照")
+    ab.set_defaults(func=cmd_board)
 
     w = sub.add_parser("web", help="启动 Web 展示终端")
     w.add_argument("--host", default="127.0.0.1")

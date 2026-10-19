@@ -102,6 +102,13 @@
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span>信号监控</span>
         </button>
+        <button class="nav-item" data-view="account">
+          <svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9z"
+            fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M3 10h18" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="17" cy="14.5" r="1.4" fill="currentColor"/></svg>
+          <span>账户</span>
+        </button>
         <button class="nav-item" data-view="db">
           <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="3" fill="none"
             stroke="currentColor" stroke-width="1.8"/><path d="M4.5 6v12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"
@@ -265,6 +272,55 @@
         <div class="panel">
           <div class="panel-head"><div class="ph-left"><h2>模拟盘状态</h2></div></div>
           <div id="paperBox" class="account-box"><span class="muted">加载中…</span></div>
+        </div>
+      </div>
+
+      <!-- 视图：账户 -->
+      <div class="view" id="view-account">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>账户总览</h2>
+              <span class="tag" id="acctTag">—</span></div>
+            <div class="ph-right">
+              <span class="live-badge" id="acctConn"><i></i><span>未连接</span></span>
+              <label class="chk-lab">
+                <input type="checkbox" id="acctAuto" checked><span>自动刷新</span>
+              </label>
+              <span class="muted" id="acctNext">—</span>
+              <button class="btn" id="acctRefresh">刷新</button>
+            </div>
+          </div>
+          <div class="grid-3" id="acctCards"></div>
+          <div class="alloc-wrap" id="acctAlloc"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>持仓明细</h2>
+            <span class="tag">市值按最新价 · 盈亏按成本价 · 标的原币种</span></div>
+            <div class="ph-right"><span class="muted" id="acctPosSum"></span></div>
+          </div>
+          <div class="table-wrap"><table class="tbl" id="acctPosTable"></table></div>
+          <p class="hint">账户基准币种为 HKD，美股标的以 USD 计价，
+            逐行数值保留标的原币种；账户层面汇总已按汇率折算。</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>账户净值曲线</h2>
+            <span class="tag" id="acctCurveTag">来自 account_snapshots</span></div>
+          </div>
+          <div id="acctCurve" class="chart" style="height:300px"></div>
+          <p class="hint">看板每被访问一次会节流写入一条快照（最快 60s 一条），
+            曲线因此随使用自然生长；也可以在后台常驻采样脚本让它更密。</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>最近委托</h2>
+            <span class="tag">orders 表</span></div>
+          </div>
+          <div class="table-wrap"><table class="tbl" id="acctOrderTable"></table></div>
         </div>
       </div>
 

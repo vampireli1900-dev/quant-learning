@@ -338,6 +338,63 @@ table.tbl tbody tr.hl td:first-child{color:#fff; font-weight:600}
 @keyframes erFlow{to{stroke-dashoffset:-24}}
 .db-err{color:var(--up)}
 
+/* ---------- 账户看板 ---------- */
+.card-hero{
+  background:linear-gradient(135deg, rgba(41,98,255,.14), rgba(41,98,255,.03));
+  border-color:rgba(41,98,255,.35);
+}
+.card-hero .v{font-size:27px; letter-spacing:.3px}
+.chk-lab{
+  display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+  font-size:11.5px; color:var(--text-dim); user-select:none;
+  padding:4px 9px; border:1px solid var(--border); border-radius:5px;
+  background:var(--bg2); transition:all .18s var(--ease);
+}
+.chk-lab:hover{border-color:var(--accent); color:var(--text)}
+.chk-lab input{accent-color:var(--accent); cursor:pointer; margin:0}
+#acctConn{opacity:.55}
+#acctConn.on{opacity:1}
+#acctConn.on i{background:var(--down)}
+
+.alloc-wrap{padding:4px 14px 16px}
+.alloc-title{
+  font-size:11px; color:var(--muted); letter-spacing:.6px;
+  margin:6px 0 8px;
+}
+.alloc-bar{
+  display:flex; width:100%; height:26px; border-radius:6px;
+  overflow:hidden; background:var(--bg2);
+  border:1px solid var(--border);
+}
+.alloc-bar i{
+  display:block; height:100%;
+  transition:width .95s var(--ease);
+  border-right:1px solid rgba(0,0,0,.28);
+}
+.alloc-bar i:last-child{border-right:none}
+.alloc-wrap .legend{padding:10px 0 0}
+.alloc-wrap .legend b{
+  margin-left:5px; color:var(--text);
+  font-variant-numeric:tabular-nums; font-weight:600;
+}
+
+/* 持仓表里的权重条 */
+.wcell{min-width:104px}
+.wbar{
+  display:inline-block; width:64px; height:6px; border-radius:3px;
+  background:var(--bg2); overflow:hidden; vertical-align:middle;
+  margin-right:7px; border:1px solid var(--border);
+}
+.wbar i{
+  display:block; height:100%; background:var(--accent);
+  transition:width .9s var(--ease);
+}
+
+.empty-hint{
+  padding:26px 14px; text-align:center; color:var(--muted);
+  font-size:12px; line-height:1.8;
+}
+
 @media (max-width:1100px){
   .grid-3{grid-template-columns:repeat(2,1fr)}
   .sidebar{width:170px; flex:0 0 170px}

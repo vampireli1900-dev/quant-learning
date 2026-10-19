@@ -102,7 +102,8 @@ quant_learning/
 │   │   └── report.py             # HTML 报告 + 图表
 │   ├── live/
 │   │   ├── broker.py             # 实盘接口（默认 dry-run + 风控限额）
-│   │   └── paper.py              # 模拟盘 paper trading 守护进程
+│   │   ├── paper.py              # 模拟盘 paper trading 守护进程
+│   │   └── dashboard.py          # 账户实时看板聚合（持仓/余额/估值）
 │   ├── db/                       # SQL 数据库持久层
 │   │   ├── schema.py             # 14 张表 ORM 模型（五层）
 │   │   ├── session.py            # engine / session_scope / init_db
@@ -118,6 +119,8 @@ quant_learning/
 ├── scripts/prefetch_data.py      # 预拉数据
 ├── scripts/paper_ops.py          # 模拟盘真实委托运营
 ├── scripts/ml_from_db.py         # 从数据库读训练集训练模型
+├── scripts/account_daemon.py     # 账户快照常驻采样（攒净值曲线）
+├── docs/schema.sql               # 建表 DDL（db-dump 生成，可直接交付）
 ├── data/                         # SQLite 数据库（.gitignore 已排除）
 ├── data_cache/                   # 数据缓存（按 数据源_标的_周期_时长 命名）
 ├── results/                      # 实验结果（CSV + HTML 报告）
@@ -200,6 +203,38 @@ print(bk.rebalance("AAPL", target_shares=100))   # 只打印不下单
 
 mon = SignalMonitor(["双均线交叉", "时间序列动量"], ["SPY", "QQQ"])
 print(mon.scan())                # 今日各模型信号与合计建议仓位
+```
+
+### 账户实时看板
+
+Web 端左侧「账户」页，实时展示：
+
+| 区块 | 内容 |
+|---|---|
+| KPI 卡片 | 账户净值、账面现金（含占净值比）、可用资金、购买力、持仓市值、持仓盈亏、当日盈亏、已实现盈亏、杠杆 |
+| 资产配置 | 现金 / 各标的持仓的占比堆叠条 + 图例 |
+| 持仓明细 | 标的、方向、股数、成本价、现价、市值、成本、浮动盈亏、盈亏%、权重条 |
+| 净值曲线 | 来自 `account_snapshots` 表的账户净值走势 |
+| 最近委托 | `orders` 表最近 12 条委托记录 |
+
+默认 10 秒自动刷新，可勾选关闭；刷新同时会把快照写进数据库（最快 60s 一条）。
+
+**币种口径**：账户基准币种是 HKD，美股标的以 USD 计价。逐行数值保留标的原币种
+（与 TWS 一致），账户层面汇总已按汇率折算，不会串币种相加。
+
+命令行也能看：
+
+```bash
+python -m quant_platform.cli board              # 打印看板 + 写一条快照
+python -m quant_platform.cli board --no-record  # 只看不写
+python scripts/account_daemon.py --interval 60  # 常驻采样，攒连续净值曲线
+```
+
+落库快照可用 SQL 直接查：
+
+```sql
+SELECT ts, account, net_liquidation, total_cash, available_funds
+FROM account_snapshots ORDER BY ts DESC LIMIT 20;
 ```
 
 ---

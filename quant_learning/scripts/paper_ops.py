@@ -136,24 +136,9 @@ def assert_paper_account(broker: IBBroker) -> str:
 
 
 def usd_hkd_rate(broker: IBBroker) -> float:
-    """
-    取 USD.HKD 汇率（账户是港币，标的都是美元，需要折算股数）。
-    ib_insync 的 Forex(pair) 要求 6 位无点格式（USDHKD / USD.HKD 会 assert 失败）。
-    取不到就用兜底 7.8，并在日志里提示。
-    """
-    for pair, what in (("USDHKD", "MIDPOINT"), ("USDHKD", "BID")):
-        try:
-            from ib_insync import Forex
-            c = Forex(pair)
-            broker.ib.qualifyContracts(c)
-            bars = broker.ib.reqHistoricalData(
-                c, "", "5 D", "1 day", what, False, 1, False)
-            if bars:
-                return float(bars[-1].close)
-        except Exception as e:                                 # noqa: BLE001
-            print(f"[提示] 汇率 {pair}/{what} 取失败：{str(e)[:60]}")
-    print("[提示] 使用兜底汇率 7.8")
-    return 7.8
+    """取 USD.HKD 汇率（账户是港币，标的都是美元，需要折算股数）。"""
+    from quant_platform.live.broker import fx_rate
+    return fx_rate(broker, "USD", "HKD")
 
 
 def latest_prices(data: Dict[str, pd.DataFrame]) -> Dict[str, float]:

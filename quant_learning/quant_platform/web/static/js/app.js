@@ -64,16 +64,17 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
-async function api(path) {
-  loading(true);
+async function api(path, quiet = false) {
+  // quiet：自动轮询用，不闪顶部加载条也不弹错误 toast（失败静默，下次再试）
+  if (!quiet) loading(true);
   try {
     const r = await fetch(path);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch (e) {
-    toast('请求失败：' + e.message);
+    if (!quiet) toast('请求失败：' + e.message);
     throw e;
-  } finally { loading(false); }
+  } finally { if (!quiet) loading(false); }
 }
 
 /* 数字滚动动画 */
@@ -140,10 +141,12 @@ async function boot() {
   $('#pfSchemeSel').onchange = () => loadPortfolio();
   $('#pfRefresh').onclick = () => loadPortfolio();
 
-  bindNav(); bindOverlays(); bindDb();
+  bindNav(); bindOverlays(); bindDb(); bindAccount();
   await reloadAll();
   loadRanking(); loadRiskViews(); loadWatchlist(); loadAccount(); loadPaper();
   loadDb();
+  loadAccountBoard(true);
+  acctSetAuto(true);
 
   // 市场时钟 + 自动刷新
   tickClock(); setInterval(tickClock, 1000);
@@ -170,6 +173,7 @@ function bindNav() {
     if (state.view === 'equity') loadEquityCurves($('#eqSymbolSel').value);
     if (state.view === 'portfolio' && !state.pfLoaded) loadPortfolio();
     if (state.view === 'db') loadDb();
+    if (state.view === 'account') loadAccountBoard(true);
     requestAnimationFrame(() => resizeCharts());
   });
 }
@@ -337,6 +341,10 @@ function resizeCharts() {
   if (state.charts.pfEq && pel.clientWidth) {
     state.charts.pfEq.applyOptions({ width: pel.clientWidth, height: pel.clientHeight });
     state.charts.pfW.applyOptions({ width: pwel.clientWidth, height: pwel.clientHeight });
+  }
+  const acl = $('#acctCurve');
+  if (state.charts.acct && acl.clientWidth) {
+    state.charts.acct.applyOptions({ width: acl.clientWidth, height: acl.clientHeight });
   }
 }
 
@@ -884,6 +892,262 @@ function bindDb() {
   $('#dbSql').addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runDbQuery(); }
   });
+}
+
+/* ==========================================================================
+   账户看板 —— 实时持仓 / 账面余额 / 持仓估值
+   ========================================================================== */
+const ACCT_PALETTE = ['#2962ff', '#f23645', '#089981', '#e0b64a',
+                      '#7b61ff', '#00bcd4', '#ff7043', '#9ccc65'];
+const ACCT = {
+  data: null,
+  auto: true,
+  interval: 10,      // 秒
+  cd: 0,             // 倒计时
+  timer: null,       // 刷新定时器
+  tick: null,        // 倒计时定时器
+};
+
+function nf(v, d = 0) {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  return Number(v).toLocaleString(undefined,
+    { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function pctf(v, d = 2) {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  const s = (Number(v) * 100).toFixed(d);
+  return (Number(v) > 0 ? '+' : '') + s + '%';
+}
+
+/* "2026-10-20 01:42" → UNIX 秒（按 UTC 打包，图上的标签就是原始墙上时间） */
+function toTs(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(String(s || ''));
+  if (!m) return null;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)) / 1000;
+}
+
+function renderAcctCards(d) {
+  const box = $('#acctCards');
+
+  // 连接状态指示：绿点=已连上 TWS，灰点=未连接
+  const conn = $('#acctConn');
+  const mkt = d.ok ? (d.market_state || {}) : {};
+  const label = !d.ok ? '未连接'
+    : (mkt.open ? '已连接 · 交易中' : '已连接 · 休市');
+  conn.classList.toggle('on', !!d.ok);
+  conn.querySelector('span').textContent = label;
+  $('#acctTag').textContent = d.ok
+    ? `${(d.account || {}).accounts || '—'} · ${d.ts || ''}`
+    : (d.error || '不可用');
+
+  if (!d.ok) {
+    box.innerHTML = `<div class="card" style="animation:dbIn .4s var(--ease) forwards">
+      <div class="k">连接状态</div><div class="v db-err">未连接</div>
+      <div class="s">${d.error || '无法连接 TWS / Gateway'}</div></div>`;
+    return;
+  }
+  const t = d.totals || {};
+  const cur = t['基准币种'] || 'HKD';
+  const pnl = t['持仓盈亏'];
+  const day = t['当日盈亏'];
+  const cards = [
+    ['账户净值', nf(t['净值'], 0), `${cur} · 含持仓与现金`, '', true],
+    ['账面现金', nf(t['现金'], 0), `占净值 ${pctf(t['现金占比'], 1)}`, ''],
+    ['可用资金', nf(t['可用资金'], 0), '可立即下单', ''],
+    ['购买力', nf(t['购买力'], 0), '含保证金杠杆', ''],
+    ['持仓市值', nf(t['持仓市值'], 0), `${t['持仓数'] ?? 0} 个持仓`, ''],
+    ['持仓盈亏', (pnl !== null && !Number.isNaN(pnl) ? (pnl > 0 ? '+' : '') : '') + nf(pnl, 0),
+     '按成本价计算', cls(pnl)],
+    ['当日盈亏', (day !== null && !Number.isNaN(day) ? (day > 0 ? '+' : '') : '') + nf(day, 0),
+     t['当日盈亏基线'] ? '对比今日首个快照' : 'IB 未提供该字段', cls(day)],
+    ['已实现盈亏', nf(t['已实现盈亏'], 0), '已平仓落袋', cls(t['已实现盈亏'])],
+    ['杠杆', fmt(t['杠杆'], 2) + '×', '持仓市值 / 净值', ''],
+  ];
+  box.innerHTML = cards.map(([k, v, s, c, big], i) =>
+    `<div class="card${big ? ' card-hero' : ''}" style="animation:dbIn .42s var(--ease) ${i * 55}ms forwards;opacity:0">
+       <div class="k">${k}</div>
+       <div class="v ${c || ''}">${v}</div>
+       <div class="s">${s}</div>
+     </div>`).join('');
+}
+
+function renderAcctAlloc(d) {
+  const box = $('#acctAlloc');
+  if (!d.ok) { box.innerHTML = ''; return; }
+  const t = d.totals || {};
+  const netliq = Number(t['净值'] || 0);
+  const cash = Number(t['现金'] || 0);
+  const gross = Number(t['持仓市值'] || 0);
+  if (netliq <= 0) { box.innerHTML = ''; return; }
+
+  const segs = [{ name: '现金', v: cash, color: '#39415c' }];
+  (d.rows || []).forEach((r, i) => {
+    const mv = Number(r['市值'] || 0);
+    if (!mv) return;
+    const hkd = Math.abs(mv) * Number(t['汇率'] || 1);
+    segs.push({ name: r['标的'], v: hkd, color: ACCT_PALETTE[i % ACCT_PALETTE.length] });
+  });
+  const other = Math.max(0, netliq - cash - gross);
+  if (other > netliq * 0.005) segs.push({ name: '其它', v: other, color: '#4a5163' });
+
+  const total = segs.reduce((a, b) => a + b.v, 0) || 1;
+  const bar = segs.map((s, i) =>
+    `<i style="background:${s.color};width:0" data-w="${(s.v / total * 100).toFixed(2)}"
+        title="${s.name} ${nf(s.v, 0)}（${(s.v / total * 100).toFixed(1)}%）"></i>`).join('');
+  const leg = segs.map(s =>
+    `<span class="lg-item"><i style="background:${s.color}"></i>${s.name}
+      <b>${(s.v / total * 100).toFixed(1)}%</b></span>`).join('');
+  box.innerHTML =
+    `<div class="alloc-title">资产配置</div>
+     <div class="alloc-bar">${bar}</div>
+     <div class="legend">${leg}</div>`;
+  requestAnimationFrame(() => {
+    $$('#acctAlloc .alloc-bar i').forEach(el => { el.style.width = el.dataset.w + '%'; });
+  });
+}
+
+function renderAcctPositions(d) {
+  const tbl = $('#acctPosTable');
+  if (!d.ok) { tbl.innerHTML = ''; $('#acctPosSum').textContent = ''; return; }
+  const rows = d.rows || [];
+  if (!rows.length) {
+    tbl.innerHTML = '';
+    $('#acctPosSum').textContent = '当前无持仓';
+    return;
+  }
+  const cols = d.columns || Object.keys(rows[0]);
+  const gross = Number((d.totals || {})['持仓市值'] || 0);
+  const pnlSum = Number((d.totals || {})['持仓盈亏'] || 0);
+  $('#acctPosSum').textContent =
+    `持仓市值 ${nf(gross, 0)} · 浮动盈亏 ${(pnlSum > 0 ? '+' : '')}${nf(pnlSum, 0)}`;
+
+  const head = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+  const body = rows.map((r, ri) => {
+    const tds = cols.map(c => {
+      const v = r[c];
+      if (c === '权重%') {
+        const w = (v === null || v === undefined || Number.isNaN(v)) ? 0 : Number(v);
+        return `<td class="wcell"><div class="wbar"><i style="width:0" data-w="${(w * 100).toFixed(1)}"></i></div>
+                <span>${(w * 100).toFixed(1)}%</span></td>`;
+      }
+      if (c === '盈亏%' || c === '浮动盈亏') {
+        const num = Number(v || 0);
+        const sign = num > 0 ? '+' : '';
+        const txt = c === '盈亏%' ? pctf(v, 2) : sign + nf(v, 2);
+        return `<td class="${cls(v)}">${(v === null || v === undefined) ? '—' : txt}</td>`;
+      }
+      if (c === '股数') return `<td>${nf(v, 0)}</td>`;
+      if (['成本价', '现价', '市值', '成本'].includes(c))
+        return `<td>${nf(v, 2)}</td>`;
+      return `<td>${(v === null || v === undefined) ? '—' : v}</td>`;
+    }).join('');
+    tbl.innerHTML = head + `<tbody><tr style="animation:dbIn .32s var(--ease) ${Math.min(ri, 20) * 40}ms forwards;opacity:0">${tds}</tr></tbody>`;
+  }).join('');
+
+  requestAnimationFrame(() => {
+    $$('#acctPosTable .wbar i').forEach(el => { el.style.width = el.dataset.w + '%'; });
+  });
+}
+
+function renderAcctCurve(d) {
+  const el = $('#acctCurve');
+  const hist = d.ok ? (d.history || {}) : {};
+  const times = hist.times || [];
+  const vals = hist['净值'] || [];
+  $('#acctCurveTag').textContent =
+    d.ok ? `来自 account_snapshots · ${times.length} 个采样点` : '无数据';
+  if (times.length < 2) {
+    if (state.charts.acct) { state.charts.acct.remove(); state.charts.acct = null; }
+    el.innerHTML = `<div class="empty-hint">快照不足（需要至少 2 条）。
+      刷新几次看板即可累积，或常驻运行 scripts/account_daemon.py。</div>`;
+    return;
+  }
+  // 轻量图要求时间严格升序且唯一：按时间戳去重（同一分钟只留最后一条）
+  const pts = [];
+  const seen = new Map();
+  times.forEach((t, i) => {
+    const ts = toTs(t);
+    if (ts === null) return;
+    seen.set(ts, Number(vals[i] || 0));
+  });
+  Array.from(seen.keys()).sort((a, b) => a - b)
+    .forEach(ts => pts.push({ time: ts, value: seen.get(ts) }));
+
+  if (state.charts.acct) { state.charts.acct.remove(); state.charts.acct = null; }
+  const c = LightweightCharts.createChart(el, {
+    ...baseChartOpts(), width: el.clientWidth, height: el.clientHeight,
+    timeScale: { ...baseChartOpts().timeScale, timeVisible: true },
+  });
+  state.charts.acct = c;
+  const ls = c.addAreaSeries({
+    lineColor: TV.accent, lineWidth: 2,
+    topColor: 'rgba(41,98,255,0.28)', bottomColor: 'rgba(41,98,255,0.01)',
+    priceLineVisible: true, lastValueVisible: true,
+  });
+  ls.setData(pts);
+  c.timeScale().fitContent();
+}
+
+async function loadAccountBoard(quiet = false) {
+  let d;
+  try {
+    d = await api('/api/account/board', quiet);
+  } catch (e) {
+    if (!quiet) renderAcctCards({ ok: false, error: e.message });
+    return null;
+  }
+  ACCT.data = d;
+  renderAcctCards(d);
+  renderAcctAlloc(d);
+  renderAcctPositions(d);
+  renderAcctCurve(d);
+  loadAcctOrders();
+  return d;
+}
+
+async function loadAcctOrders() {
+  try {
+    const d = await api('/api/db/orders?limit=12', true);
+    const rows = d.rows || [];
+    const tbl = $('#acctOrderTable');
+    if (!rows.length) { tbl.innerHTML = ''; return; }
+    const cols = ['时间', '账户', '标的', '动作', '股数', '类型', '限价', '状态', '金额(HKD)'];
+    tbl.innerHTML =
+      `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+      rows.map((r, ri) =>
+        `<tr style="animation:dbIn .32s var(--ease) ${Math.min(ri, 12) * 35}ms forwards;opacity:0">` +
+        cols.map(c => {
+          const v = r[c];
+          let s = (v === null || v === undefined) ? '—'
+            : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : fmt(v, 2)) : String(v));
+          if (typeof v === 'string' && v.length > 40) s = v.slice(0, 40) + '…';
+          if (c === '动作') return `<td class="${v === 'BUY' ? 'up' : 'down'}">${s}</td>`;
+          return `<td>${s}</td>`;
+        }).join('') + '</tr>').join('') + '</tbody>';
+  } catch (e) { /* 静默 */ }
+}
+
+function acctSetAuto(on) {
+  ACCT.auto = on;
+  clearInterval(ACCT.timer); clearInterval(ACCT.tick);
+  ACCT.timer = null; ACCT.tick = null;
+  if (!on) { $('#acctNext').textContent = '已暂停'; ACCT.cd = 0; return; }
+  ACCT.cd = ACCT.interval;
+  ACCT.timer = setInterval(() => {
+    if (state.view === 'account') loadAccountBoard(true);
+  }, ACCT.interval * 1000);
+  ACCT.tick = setInterval(() => {
+    ACCT.cd -= 1;
+    if (ACCT.cd <= 0) ACCT.cd = ACCT.interval;
+    if (ACCT.auto) $('#acctNext').textContent = ACCT.cd + 's 后刷新';
+  }, 1000);
+  $('#acctNext').textContent = ACCT.cd + 's 后刷新';
+}
+
+function bindAccount() {
+  $('#acctRefresh').onclick = () => loadAccountBoard(false);
+  $('#acctAuto').onchange = (e) => acctSetAuto(e.target.checked);
 }
 
 boot().catch(e => {
