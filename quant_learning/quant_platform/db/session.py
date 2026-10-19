@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator, Optional
 
 from sqlalchemy import create_engine, event
@@ -149,10 +150,10 @@ def db_location(url: Optional[str] = None) -> str:
 
 def db_size_bytes(url: Optional[str] = None) -> Optional[int]:
     """SQLite 返回数据文件字节数；其它数据库返回 None。"""
-    if not is_sqlite(url):
+    u = resolve_url(url)
+    if not u.startswith("sqlite"):
         return None
-    # 只有使用默认路径时才知道文件在哪
-    if url is None and not CONFIG.db.url:
-        return DEFAULT_DB_PATH.stat().st_size if DEFAULT_DB_PATH.exists() else 0
-    p = url or CONFIG.db.url
-    return DEFAULT_DB_PATH.stat().st_size if DEFAULT_DB_PATH.exists() and p.startswith("sqlite") else 0
+    try:
+        return Path(u.split("///")[-1]).stat().st_size
+    except OSError:
+        return 0

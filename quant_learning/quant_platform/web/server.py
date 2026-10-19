@@ -574,17 +574,17 @@ class SQLQuery(BaseModel):
 def db_info():
     """数据库位置、方言、文件大小 + 各表行数。"""
     try:
-        from ..db import db_file_size, db_path_or_dsn, is_sqlite, table_stats
+        from ..db import db_location, db_size_bytes, is_sqlite, table_stats
         from ..db.session import get_engine
     except Exception as e:                                      # noqa: BLE001
         return {"available": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}
     try:
         engine = get_engine()
         stats = table_stats()
-        size = db_file_size()
+        size = db_size_bytes()
         return {
             "available": True,
-            "location": db_path_or_dsn(),
+            "location": db_location(),
             "dialect": engine.dialect.name,
             "sqlite": is_sqlite(),
             "size_mb": round(size / 1024 / 1024, 3) if size is not None else None,
