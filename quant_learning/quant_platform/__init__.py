@@ -15,10 +15,11 @@ quant_platform —— 量化交易模型实验平台
     data/            数据层（多数据源 + 缓存）
     indicators.py    技术指标库
     strategies/      策略库（注册表）
+    risk/            风控叠加层（波动目标/ATR止损/回撤熔断）+ 风控 A/B 对比
     backtest/        回测引擎 + 绩效指标 + 参数寻优 + 走前分析
     experiment/      实验编排 + 对比 + 报告生成
     live/            实盘/模拟盘接口
     cli.py           命令行入口
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

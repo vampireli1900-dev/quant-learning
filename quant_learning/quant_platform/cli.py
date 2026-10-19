@@ -110,6 +110,30 @@ def cmd_experiment(args):
     print(f"HTML 报告: {path}")
 
 
+def cmd_riskab(args):
+    """风控 A/B 对比：同一信号套不同风控方案。"""
+    from .data import get_data
+    from .risk import overlay_ab_test, PRESETS
+    df = get_data(args.symbol, duration=args.duration)
+    print(f"数据 {len(df)} 根：{df.index[0].date()} ~ {df.index[-1].date()}")
+    ovs = args.overlay or list(PRESETS)
+    cols = ["策略", "风控方案", "夏普比率", "年化收益率", "最大回撤",
+            "卡玛比率", "交易次数", "持仓占比"]
+    all_rows = []
+    for s in args.strategy:
+        ab = overlay_ab_test(df, s, overlays=ovs, symbol=args.symbol)
+        ab = ab.sort_values(args.metric, ascending=False)
+        print(f"\n===== {s} =====")
+        _print_df(ab[[c for c in cols if c in ab.columns]])
+        all_rows.append(ab)
+    if len(all_rows) > 1 and args.save:
+        out = pd.concat(all_rows, ignore_index=True)
+        p = Path("results") / f"riskab_{args.symbol}.csv"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        out.to_csv(p, encoding="utf-8-sig", index=False)
+        print(f"\n已保存: {p}")
+
+
 def cmd_account(args):
     from .live import IBBroker
     bk = IBBroker(dry_run=True)
@@ -191,6 +215,17 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--config", default="configs/demo.yaml")
     e.add_argument("--name", default=None)
     e.set_defaults(func=cmd_experiment)
+
+    ra = sub.add_parser("riskab", help="风控 A/B 对比")
+    ra.add_argument("symbol")
+    ra.add_argument("--strategy", nargs="+", default=["双均线交叉"])
+    ra.add_argument("--overlay", nargs="*", default=None,
+                    help="风控方案名（默认全部）：无风控/ATR移动止损/固定止损8%/"
+                         "ATR止损+止盈/波动率目标15%/波动目标+ATR止损/全套风控")
+    ra.add_argument("--metric", default="夏普比率")
+    ra.add_argument("--duration", default="5 Y")
+    ra.add_argument("--save", action="store_true")
+    ra.set_defaults(func=cmd_riskab)
 
     sub.add_parser("account", help="查看 IB 账户与持仓").set_defaults(func=cmd_account)
 
