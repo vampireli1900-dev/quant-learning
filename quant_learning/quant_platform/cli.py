@@ -223,6 +223,14 @@ def cmd_signal(args):
     _print_df(mon.scan())
 
 
+def cmd_web(args):
+    """启动 TradingView 风格的 Web 展示终端。"""
+    from .web import run_server
+    print(f"启动 Web 终端： http://{args.host}:{args.port}")
+    print("（Ctrl+C 停止）")
+    run_server(host=args.host, port=args.port)
+
+
 def cmd_paper(args):
     """模拟盘自动交易监控（默认 dry-run，绝不真发单）。"""
     from .live import PaperConfig, PaperTrader, default_paper_config
@@ -359,6 +367,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--strategy", nargs="+", default=None)
     s.add_argument("--duration", default="2 Y")
     s.set_defaults(func=cmd_signal)
+
+    w = sub.add_parser("web", help="启动 Web 展示终端")
+    w.add_argument("--host", default="127.0.0.1")
+    w.add_argument("--port", type=int, default=8770)
+    w.set_defaults(func=cmd_web)
 
     pp = sub.add_parser("paper", help="模拟盘自动交易监控（默认 dry-run）")
     pp.add_argument("--name", default=None)

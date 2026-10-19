@@ -98,12 +98,20 @@ class IBBroker:
     def account(self) -> Dict[str, str]:
         ib = self.ib
         out = {"accounts": ",".join(ib.managedAccounts())}
+        keys = ("NetLiquidation", "TotalCashValue", "BuyingPower",
+                "AvailableFunds", "GrossPositionValue", "Cushion")
         try:
-            for v in ib.accountValues():
-                if v.currency in ("BASE", "") and v.tag in (
-                        "NetLiquidation", "TotalCashValue", "BuyingPower",
-                        "AvailableFunds", "GrossPositionValue", "Cushion"):
+            vals = ib.accountValues()
+            # 先按基准币种取；多币种账户（如港币 DUT 账号）BASE 可能为空，
+            # 此时退而求其次：取任一币种下第一次出现的同名字段。
+            for v in vals:
+                if v.currency in ("BASE", "") and v.tag in keys:
                     out[v.tag] = v.value
+                    out.setdefault("currency", v.currency or "BASE")
+            for v in vals:
+                if v.tag in keys and v.tag not in out:
+                    out[v.tag] = v.value
+                    out.setdefault("currency", v.currency)
         except Exception as e:                               # noqa: BLE001
             out["error"] = str(e)[:100]
         return out

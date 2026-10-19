@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuantLab · 量化模型实验终端</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div id="boot">
+  <div class="boot-logo">Quant<span>Lab</span></div>
+  <div class="boot-bar"><i></i></div>
+  <div class="boot-txt">正在连接行情与实验结果…</div>
+</div>
+
+<div class="app" id="app" hidden>
+
+  <!-- ============ 顶栏 ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 17.5 9 11l4 4 7.5-7.5" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21 4h-5m5 0v5" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-name">Quant<b>Lab</b></span>
+    </div>
+
+    <div class="symbol-box">
+      <input id="symbolInput" class="symbol-input" autocomplete="off"
+             spellcheck="false" placeholder="输入代码…">
+      <div class="symbol-chips" id="symbolChips"></div>
+    </div>
+
+    <div class="ticker" id="ticker">
+      <span class="t-sym">—</span>
+      <span class="t-px">—</span>
+      <span class="t-chg">—</span>
+    </div>
+
+    <div class="top-right">
+      <label class="sel-wrap">
+        <span>策略</span>
+        <select id="strategySel" class="sel"></select>
+      </label>
+      <label class="sel-wrap">
+        <span>周期</span>
+        <select id="durationSel" class="sel">
+          <option value="2 Y">2 年</option>
+          <option value="5 Y" selected>5 年</option>
+        </select>
+      </label>
+      <div class="live-badge"><i></i><span id="liveTxt">SIM</span></div>
+    </div>
+  </header>
+
+  <!-- ============ 主体 ============ -->
+  <main class="layout">
+
+    <!-- 左侧导航 -->
+    <aside class="sidebar" id="sidebar">
+      <nav class="nav">
+        <button class="nav-item active" data-view="chart">
+          <svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 16V9m4 7V7m4 9v-4"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>图表</span>
+        </button>
+        <button class="nav-item" data-view="equity">
+          <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>净值对比</span>
+        </button>
+        <button class="nav-item" data-view="rank">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>模型排名</span>
+        </button>
+        <button class="nav-item" data-view="risk">
+          <svg viewBox="0 0 24 24"><path d="M12 3l8 4v6c0 5-4 7-8 8-4-1-8-3-8-8V7l8-4z"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          <span>风控与显著性</span>
+        </button>
+        <button class="nav-item" data-view="watch">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none"
+            stroke="currentColor" stroke-width="2"/><path d="M12 7v5l4 2"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>信号监控</span>
+        </button>
+      </nav>
+
+      <div class="side-block">
+        <div class="side-title">模型库</div>
+        <div class="strategy-list" id="strategyList"></div>
+      </div>
+
+      <div class="side-block side-account">
+        <div class="side-title">账户</div>
+        <div id="accountBox" class="account-box"><span class="muted">加载中…</span></div>
+      </div>
+    </aside>
+
+    <!-- 内容区 -->
+    <section class="content">
+
+      <!-- 视图：图表 -->
+      <div class="view active" id="view-chart">
+        <div class="panel chart-panel">
+          <div class="panel-head">
+            <div class="ph-left">
+              <h2 id="chartTitle">—</h2>
+              <span class="tag" id="chartTag">日线</span>
+            </div>
+            <div class="ph-right">
+              <div class="switch-group" id="overlayToggle">
+                <button class="sw active" data-ov="ma">MA</button>
+                <button class="sw" data-ov="bb">布林</button>
+                <button class="sw active" data-ov="sig">信号</button>
+                <button class="sw active" data-ov="vol">量</button>
+              </div>
+            </div>
+          </div>
+          <div id="priceChart" class="chart price-chart"></div>
+          <div id="volChart" class="chart vol-chart"></div>
+        </div>
+
+        <div class="grid-3" id="metricCards"></div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>策略回测指标</h2></div>
+            <div class="ph-right"><span class="muted" id="btParams"></span></div>
+          </div>
+          <div id="metricGrid" class="metric-grid"></div>
+        </div>
+      </div>
+
+      <!-- 视图：净值 -->
+      <div class="view" id="view-equity">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>净值曲线对比</h2>
+              <span class="tag" id="eqTag"></span></div>
+            <div class="ph-right">
+              <select id="eqSymbolSel" class="sel"></select>
+              <button class="btn" id="eqRefresh">刷新</button>
+            </div>
+          </div>
+          <div id="equityChart" class="chart equity-chart"></div>
+          <div class="legend" id="equityLegend"></div>
+        </div>
+      </div>
+
+      <!-- 视图：排名 -->
+      <div class="view" id="view-rank">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="ph-left"><h2>模型横向排名</h2>
+              <span class="tag">跨 8 标的平均</span></div>
+            <div class="ph-right">
+              <select id="rankMetric" class="sel">
+                <option value="夏普比率">按夏普</option>
+                <option value="卡玛比率">按卡玛</option>
+                <option value="年化收益率">按年化</option>
+                <option value="最大回撤">按回撤</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap"><table class="tbl" id="rankTable"></table></div>
+        </div>
+      </div>
+
+      <!-- 视图：风控 / 显著性 -->
+      <div class="view" id="view-risk">
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>统计显著性体检</h2>
+            <span class="tag">组合层</span></div></div>
+          <div class="table-wrap"><table class="tbl" id="sigTable"></table></div>
+          <p class="hint">PSR = 真实夏普 &gt; 0 的概率（&gt;0.95 才算显著）；
+            DSR 扣除「试了很多次」的选择偏差；SR0 是纯靠试次数能刷出的期望虚高线。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>风控 A/B：夏普变化</h2>
+            <span class="tag">相对无风控</span></div></div>
+          <div class="table-wrap"><table class="tbl" id="riskTable"></table></div>
+          <p class="hint">正值 = 风控有效。结论：风控只对高暴露趋势策略有效，
+            对本来就低暴露的择时策略是负优化。</p>
+        </div>
+      </div>
+
+      <!-- 视图：监控 -->
+      <div class="view" id="view-watch">
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>今日信号扫描</h2>
+            <span class="tag" id="watchTag">只读</span></div>
+            <div class="ph-right"><button class="btn" id="watchRefresh">重新扫描</button></div>
+          </div>
+          <div class="table-wrap"><table class="tbl" id="watchTable"></table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="ph-left"><h2>模拟盘状态</h2></div></div>
+          <div id="paperBox" class="account-box"><span class="muted">加载中…</span></div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <div class="loading-bar" id="loadingBar"></div>
+</div>
+
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
