@@ -44,10 +44,21 @@ python -m quant_platform.cli walkforward SPY --strategy 时间序列动量
 # 6. 一键跑完整实验并出 HTML 报告
 python -m quant_platform.cli experiment --config configs/main_compare.yaml
 
-# 7. 今日信号扫描（只读，不下单）
-python -m quant_platform.cli signal SPY QQQ NVDA
+# 7. 风控 A/B：同一信号挂不同风控方案对比
+python -m quant_platform.cli riskab SPY --strategy 双均线交叉 ZScore回归 --save
 
-# 8. 账户与持仓
+# 8. 多标的组合回测（5 种资金分配方案自动择优）
+python -m quant_platform.cli portfolio SPY QQQ AAPL MSFT NVDA AMD TSLA META --strategy ADX趋势过滤
+
+# 9. 统计显著性体检（PSR / DSR / 最小样本量 / 随机置换检验）
+python -m quant_platform.cli significance SPY --random 双均线交叉 --iter 300
+
+# 10. 模拟盘监控（默认 dry-run，绝不真发单）
+python -m quant_platform.cli paper --preset                    # 跑一次看计划
+python -m quant_platform.cli paper --preset --daemon --interval 3600   # 常驻
+
+# 11. 今日信号扫描（只读）/ 账户与持仓
+python -m quant_platform.cli signal SPY QQQ NVDA
 python -m quant_platform.cli account
 ```
 
@@ -80,11 +91,18 @@ quant_learning/
 │   │   ├── metrics.py            # 20+ 绩效指标 + 综合评分
 │   │   ├── optimizer.py          # 网格/随机寻优 + 过拟合体检
 │   │   └── walkforward.py        # 走前分析
+│   ├── risk/                     # 风控叠加层
+│   │   ├── overlay.py            # 波动率目标/ATR移动止损/止损止盈/回撤熔断
+│   │   └── compare.py            # 风控 A/B 对比
+│   ├── stats/significance.py     # 显著性：bootstrap/PSR/DSR/minTRL/随机置换
+│   ├── portfolio/engine.py       # 多标的组合回测（5 种权重方案）
 │   ├── experiment/
 │   │   ├── runner.py             # 实验编排（策略×标的×参数）
 │   │   ├── compare.py            # 排名 / 稳健性 / 相关性 / 市场状态分解
 │   │   └── report.py             # HTML 报告 + 图表
-│   ├── live/broker.py            # 实盘接口（默认 dry-run + 风控限额）
+│   ├── live/
+│   │   ├── broker.py             # 实盘接口（默认 dry-run + 风控限额）
+│   │   └── paper.py              # 模拟盘 paper trading 守护进程
 │   └── cli.py                    # 命令行入口
 ├── configs/                      # 实验配置（YAML）
 │   ├── demo.yaml                 # 冒烟测试
