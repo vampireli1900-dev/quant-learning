@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 数据与结果（体积大、可随时重新生成）
+data_cache/
+results/**/*.pkl
+results/**/equity_curves.csv
+results/**/benchmark.csv
+logs/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.env

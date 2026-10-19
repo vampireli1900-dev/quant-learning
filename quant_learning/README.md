@@ -1,80 +1,198 @@
-# 量化交易入门学习项目（quant_learning）
+# quant_learning —— 量化交易模型实验平台
 
-一套**零依赖门槛**（只需 pandas + numpy）、**中文注释**、**开箱即跑**的量化交易学习代码。
-目标是让你理解一条完整的量化策略流水线，而不是给一个能赚钱的黑盒。
+> 从「教学 demo」升级为「可对多种量化交易模型做检测与对比的实验平台」。
+> 数据来自**盈透证券(IBKR)真实历史行情**，支持 21 个模型 × 任意标的 × 多周期对比，
+> 内置参数寻优、走前验证(Walk-Forward)、过拟合诊断与 HTML 报告。
 
-## 一句话看懂量化交易
+---
 
-> 用历史数据（回测）验证一条机械交易规则过去能不能赚钱、风险多大，再决定要不要拿去实盘。
+## 一、它解决什么问题
 
-五个环节，正好对应五个文件：
+| 原来的项目 | 现在的平台 |
+|-----------|-----------|
+| 合成假数据 | 盈透真实日线/小时线/分钟线（带本地缓存） |
+| 3 个策略写死在 main.py | 21 个策略注册表，新增策略只需实现 `signals(df)` |
+| 只有一个总收益率看结果 | 20+ 绩效指标 + 综合评分排名 + 稳健性诊断 |
+| 没有防过拟合机制 | 网格寻优 + 参数敏感性 + 走前分析（样本内/外对比） |
+| 结果打印到控制台 | CSV/JSON 落盘 + 带图表的 HTML 报告 |
 
-```
-data.py        数据      —— 从哪拿 K 线（现在用"假数据"，保证离线能跑）
-indicators.py  指标      —— 把价格算成 SMA / EMA / RSI / MACD / 布林带
-strategy.py    策略      —— 把指标翻译成"每天买/卖"的信号(0/1)
-backtest.py    回测      —— 按信号模拟交易，算收益、风险、胜率
-main.py        入口      —— 把上面串起来跑一遍给你看结果
-```
+---
 
-## 怎么运行
+## 二、快速开始
 
-用你的 `aicode` conda 环境（已装 pandas / numpy / ib_insync）：
+环境：`E:/Programs/miniconda/envs/aicode/python.exe`（Python 3.10，已装 pandas/numpy/
+matplotlib/scipy/scikit-learn/yfinance/ib_insync）
 
 ```bash
 cd d:/pycharm_file/2026_stork/quant_learning
-E:/Programs/miniconda/envs/aicode/python.exe main.py
+
+# 1. 看有哪些模型
+python -m quant_platform.cli list
+
+# 2. 拉数据（自动缓存到 data_cache/）
+python -m quant_platform.cli fetch SPY AAPL 700.HK --duration "5 Y"
+
+# 3. 单标的回测
+python -m quant_platform.cli backtest SPY --strategy 双均线交叉 RSI均值回归
+
+# 4. 参数寻优 + 过拟合体检
+python -m quant_platform.cli optimize SPY --strategy 双均线交叉 --metric 夏普比率
+
+# 5. 走前分析（样本内 vs 样本外）
+python -m quant_platform.cli walkforward SPY --strategy 时间序列动量
+
+# 6. 一键跑完整实验并出 HTML 报告
+python -m quant_platform.cli experiment --config configs/main_compare.yaml
+
+# 7. 今日信号扫描（只读，不下单）
+python -m quant_platform.cli signal SPY QQQ NVDA
+
+# 8. 账户与持仓
+python -m quant_platform.cli account
 ```
 
-在 PyCharm 里更方便：直接用 `aicode` 解释器打开 `main.py` 点运行即可。
+> 运行前请保证 TWS 已登录并开启 API（本机 127.0.0.1:7497）。
 
-（可选）想画资金曲线图：`pip install matplotlib`，`main.py` 末尾会自动画图。
+---
 
-## 三个内置策略（从易到难）
+## 三、目录结构
 
-| 策略 | 思路 | 类型 |
-|------|------|------|
-| 双均线交叉 (20/50) | 快线上穿慢线=金叉买入，下穿=死叉卖出 | 趋势跟随 |
-| RSI 均值回归 (14) | 超卖(RSI<30)买入，超买(RSI>70)卖出 | 均值回归 |
-| 布林带突破 (20,2) | 突破上轨买入，跌破中轨卖出 | 突破 |
+```
+quant_learning/
+├── quant_platform/               # 平台代码
+│   ├── config.py                 # 全局配置（IB 连接 / 成本假设 / 路径）
+│   ├── indicators.py             # 技术指标库（趋势/动量/波动/量能/ML特征）
+│   ├── data/                     # 数据层
+│   │   ├── base.py               # 数据源抽象 + 统一 OHLCV 格式
+│   │   ├── ibkr_source.py        # 盈透数据源（限频保护/重试/clientId 自动避让）
+│   │   ├── other_sources.py      # yfinance / CSV / 带市场状态的合成数据
+│   │   ├── cache.py              # 本地 CSV 缓存
+│   │   └── manager.py            # get_data() 统一入口（缓存+降级）
+│   ├── strategies/               # 策略库（注册表机制）
+│   │   ├── base.py               # Strategy 基类 + 参数空间 + 状态机工具
+│   │   ├── trend.py              # 趋势跟踪 / 突破
+│   │   ├── mean_reversion.py     # 均值回归
+│   │   ├── momentum.py           # 动量 / 波动率目标 / ATR 移动止损
+│   │   ├── ml.py                 # 机器学习（严格走前重训）
+│   │   └── ensemble.py           # 投票 / 加权 / 状态自适应切换
+│   ├── backtest/
+│   │   ├── engine.py             # 回测引擎（成本/滑点/止损/波动率目标仓位）
+│   │   ├── metrics.py            # 20+ 绩效指标 + 综合评分
+│   │   ├── optimizer.py          # 网格/随机寻优 + 过拟合体检
+│   │   └── walkforward.py        # 走前分析
+│   ├── experiment/
+│   │   ├── runner.py             # 实验编排（策略×标的×参数）
+│   │   ├── compare.py            # 排名 / 稳健性 / 相关性 / 市场状态分解
+│   │   └── report.py             # HTML 报告 + 图表
+│   ├── live/broker.py            # 实盘接口（默认 dry-run + 风控限额）
+│   └── cli.py                    # 命令行入口
+├── configs/                      # 实验配置（YAML）
+│   ├── demo.yaml                 # 冒烟测试
+│   ├── main_compare.yaml         # 主对比实验
+│   └── walkforward_validation.yaml
+├── scripts/prefetch_data.py      # 预拉数据
+├── data_cache/                   # 数据缓存（按 数据源_标的_周期_时长 命名）
+├── results/                      # 实验结果（CSV + HTML 报告）
+├── _env_check/                   # 环境检测脚本与报告
+└── data.py / indicators.py / strategy.py / backtest.py / main.py   # 原始教学代码（保留）
+```
 
-## 你需要理解的核心概念（建议按顺序读代码）
+---
 
-1. **无未来函数（look-ahead bias）** —— 见 `backtest.py` 里的 `signal.shift(1)`。
-   今天持仓只能用昨天的信号，否则等于"作弊"，回测再好也是假的。
-2. **交易成本** —— 每换一次仓收一次手续费（`backtest.py` 里的 `turnover`）。
-   很多策略"看着赚钱，扣掉手续费就不赚了"。
-3. **风险比收益重要** —— 别只看总收益率，要看**最大回撤**（最惨能亏多少）和
-   **夏普比率**（每承担一单位风险赚多少）。
-4. **过拟合** —— 参数(如 20/50)调得太好，往往只是"拟合了历史噪音"，实盘失效。
-   这是新手最容易踩的坑，也是量化最大的难点。
+## 四、内置模型一览
 
-## 下一步怎么练
+| 类别 | 模型 | 核心逻辑 | 适合行情 |
+|------|------|---------|---------|
+| 基准 | 买入持有 | 始终满仓 | 长期上涨 |
+| 趋势跟踪 | 双均线交叉 | 快线上穿慢线买入 | 单边趋势 |
+| | MACD交叉 | DIF 上穿 DEA | 中段趋势 |
+| | ADX趋势过滤 | ADX>阈值且均线向上 | 强趋势 |
+| | 均线+长周期过滤 | 价格在 200 线上方才做多 | 牛市 |
+| | ATR移动止损 | 持仓期最高价 - k×ATR 离场 | 大趋势 |
+| 突破 | 唐奇安突破 | 突破 N 日最高价（海龟） | 大级别趋势 |
+| | ATR通道突破 | 突破 EMA + k×ATR 上轨 | 波动放大 |
+| 均值回归 | RSI均值回归 | RSI<30 买，>70 卖 | 震荡市 |
+| | RSI2极端反转 | 200线上方 + 2日RSI<5 | 牛市回调 |
+| | 布林带回归 | 跌破下轨买，回中轨卖 | 震荡市 |
+| | ZScore回归 | 偏离 N 个标准差入场 | 震荡市 |
+| | 布林+RSI双确认 | 双条件共振 | 震荡市 |
+| 动量 | 时间序列动量 | 过去 N 期收益>0 持仓 | 中长期趋势 |
+| | ROC动量阈值 | 变动率突破阈值 | 趋势启动 |
+| | 波动率目标动量 | 波动大减仓、波动小加仓 | 全环境 |
+| 机器学习 | 机器学习方向预测 | RF/LogReg 滚动重训预测次日涨跌 | 数据充足的活跃标的 |
+| | ML+趋势过滤 | ML 看多 且 价格在长期均线上方 | 牛市 |
+| 组合 | 多策略投票 | 多模型多数表决 | 全环境 |
+| | 信号加权混合 | 多信号线性加权成连续仓位 | 全环境 |
+| | 状态自适应切换 | ADX 高用趋势模型、低用回归模型 | 全环境 |
 
-1. 改 `main.py` 里的参数（比如均线改成 5/20、RSI 阈值改成 20/80），观察结果怎么变。
-2. 在 `strategy.py` 里照着现有模板，自己写一个新策略（例如 MACD 金叉死叉）。
-3. 把 `data.py` 文件末尾的 TODO 接上**真实数据**：
-   - 用你 `t.py` 里的 ib_insync 拉盈透真实 K 线，或
-   - `pip install yfinance` 免费下载美股数据。
-4. 换不同股票/周期回测，看看同一策略在别处是否还能成立（这叫"鲁棒性"）。
+新增自己的模型：
 
-## 推荐的进阶资源（GitHub 项目）
+```python
+from quant_platform.strategies import Strategy, StrategyMeta, register
 
-| 项目 | 一句话说明 | 适合 |
-|------|-----------|------|
-| [vnpy/vnpy](https://github.com/vnpy/vnpy) | 中文量化交易框架，支持盈透 IB、回测+实盘一体，国内生态最成熟 | 中文用户、想接实盘 |
-| [mementum/backtrader](https://github.com/mementum/backtrader) | 最经典的 Python 回测框架，文档/例子极多 | 入门学回测 |
-| [polakowo/vectorbt](https://github.com/polakowo/vectorbt) | 极快的向量化回测，适合大规模参数寻优 | 进阶、批量研究 |
-| [microsoft/qlib](https://github.com/microsoft/qlib) | 微软的 AI 量化平台，机器学习和因子挖掘方向 | 想走 AI/ML 量化 |
-| [AI4Finance-Foundation/FinRL](https://github.com/AI4Finance-Foundation/FinRL) | 深度强化学习做交易，学术项目配套论文 | 想做 DRL 交易 |
-| [QuantConnect/Lean](https://github.com/QuantConnect/Lean) | 专业级多资产算法交易引擎(C#/Python) | 想做严肃系统 |
+@register
+class MyStrategy(Strategy):
+    meta = StrategyMeta("我的策略", "自定义", "一句话说明")
+    default_params = {"n": 20}
+    param_space = {"n": [10, 20, 30]}      # 供寻优与走前使用
 
-### 学习路线建议
+    def signals(self, df):                 # df: open/high/low/close/volume
+        return (df["close"] > df["close"].rolling(self.params["n"]).mean()).astype(float)
+```
 
-1. 先吃透本项目的 5 个文件，理解"回测的坑"（未来函数、成本、过拟合）。
-2. 用 **backtrader** 把同样的双均线策略再实现一遍，体会成熟框架怎么抽象。
-3. 中文社区：注册**聚宽(JoinQuant)**、**米筐(RiceQuant)** 玩在线的研究+回测环境。
-4. 有数据/ML 基础后，再看 **qlib / FinRL** 走 AI 方向。
-5. 全程记住：**量化交易的难点从来不是代码，而是策略逻辑本身是否稳健**。
+注册后，`list` / `backtest` / `experiment` 立即支持它，无需改动任何其它代码。
 
-> 免责声明：本项目仅用于学习，任何策略回测结果都不构成投资建议。
+---
+
+## 五、回测的三条诚实原则（代码层面已强制）
+
+1. **无未来函数**：信号统一 `shift(1)` 后才变成持仓，今天只能用昨天的信号。
+2. **有交易成本**：手续费（比例 + 每笔最低佣金）+ 滑点，按换手率发生。
+3. **防过拟合**：
+   - `optimizer.overfitting_score()`：看最优参数邻域是否也是"参数高原"；
+   - `walkforward.walk_forward()`：滚动窗口寻优 + 样本外检验；
+   - 报告会自动标注"样本外夏普 < 样本内一半"的疑似过拟合模型。
+
+---
+
+## 六、实盘 / 模拟盘
+
+当前账户为**模拟盘**（`DUT097472`，DU 前缀）。平台默认安全：
+
+- `IBBroker(dry_run=True)`：只打印"打算做什么"，不会真发单；
+- 风控限额：单笔金额上限、单标的持仓上限、当日下单次数上限；
+- 行情：本机 TWS 未订阅实时行情（错误 10089），实时 tick 不可用；
+  监控模块走"轮询最新 K 线计算信号"，不依赖流式行情。
+
+```python
+from quant_platform.live import IBBroker, SignalMonitor
+bk = IBBroker(dry_run=True)      # 试算
+bk.connect(); print(bk.account()); print(bk.positions())
+print(bk.rebalance("AAPL", target_shares=100))   # 只打印不下单
+
+mon = SignalMonitor(["双均线交叉", "时间序列动量"], ["SPY", "QQQ"])
+print(mon.scan())                # 今日各模型信号与合计建议仓位
+```
+
+---
+
+## 七、环境与权限状态
+
+详见 `_env_check/ENV_REPORT.md`。要点：
+
+- TWS 已登录并开启 API：`127.0.0.1:7497`，`readOnlyApi=false`，仅允许本机连接；
+- 账户：模拟盘 `DUT097472`，净值约 HKD 100 万，当前无持仓；
+- 历史数据：日线最长 5 年，小时线 2 年，1 分钟线 1 个月，批量多标的正常；
+- 实时行情：**未订阅**，快照返回空值（不影响回测与日频监控）；
+- Git：`git@github.com:vampireli1900-dev/quant-learning.git`，SSH 可推送。
+
+---
+
+## 八、原始教学代码
+
+`data.py` / `indicators.py` / `strategy.py` / `backtest.py` / `main.py` 保留为入门教学版本
+（合成数据、5 个文件讲清一条流水线），建议先读它们理解"回测的坑"，再进入平台代码。
+
+---
+
+> 免责声明：本项目仅用于研究与学习，所有回测结果不构成投资建议。

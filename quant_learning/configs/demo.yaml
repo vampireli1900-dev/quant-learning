@@ -1,0 +1,19 @@
+# 快速冒烟实验：少量标的 + 少量策略，用于验证流水线
+name: demo_smoke
+symbols:
+  - SPY
+strategies:
+  - 买入持有
+  - 双均线交叉
+  - RSI均值回归
+  - 唐奇安突破
+  - 时间序列动量
+duration: "3 Y"
+bar_size: "1 day"
+data_source: auto
+initial_capital: 1000000
+commission_rate: 0.0005
+slippage_rate: 0.0005
+include_benchmark: true
+run_walkforward: false
+run_optimization: false

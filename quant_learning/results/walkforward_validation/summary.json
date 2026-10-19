@@ -1,0 +1,58 @@
+{
+  "experiment": "walkforward_validation",
+  "created_at": "2026-10-19 21:54:02",
+  "runtime_sec": 33.54,
+  "symbols": [
+    "SPY",
+    "QQQ",
+    "NVDA",
+    "TSLA",
+    "700.HK"
+  ],
+  "strategies": [
+    "买入持有",
+    "双均线交叉",
+    "RSI均值回归",
+    "唐奇安突破",
+    "时间序列动量",
+    "ADX趋势过滤",
+    "状态自适应切换"
+  ],
+  "data_info": {
+    "SPY": {
+      "bars": 1256,
+      "start": "2021-10-18",
+      "end": "2026-10-19",
+      "last_close": 767.22
+    },
+    "QQQ": {
+      "bars": 1256,
+      "start": "2021-10-18",
+      "end": "2026-10-19",
+      "last_close": 718.64
+    },
+    "NVDA": {
+      "bars": 1256,
+      "start": "2021-10-18",
+      "end": "2026-10-19",
+      "last_close": 215.61
+    },
+    "TSLA": {
+      "bars": 1256,
+      "start": "2021-10-18",
+      "end": "2026-10-19",
+      "last_close": 357.21
+    },
+    "700.HK": {
+      "bars": 1234,
+      "start": "2021-10-18",
+      "end": "2026-10-16",
+      "last_close": 417.8
+    }
+  },
+  "assumptions": {
+    "initial_capital": 1000000,
+    "commission_rate": 0.0005,
+    "slippage_rate": 0.0005
+  }
+}

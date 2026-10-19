@@ -1,0 +1,28 @@
+{
+  "experiment": "demo_smoke",
+  "created_at": "2026-10-19 21:08:38",
+  "runtime_sec": 0.54,
+  "symbols": [
+    "SPY"
+  ],
+  "strategies": [
+    "买入持有",
+    "双均线交叉",
+    "RSI均值回归",
+    "唐奇安突破",
+    "时间序列动量"
+  ],
+  "data_info": {
+    "SPY": {
+      "bars": 752,
+      "start": "2023-10-18",
+      "end": "2026-10-16",
+      "last_close": 763.25
+    }
+  },
+  "assumptions": {
+    "initial_capital": 1000000,
+    "commission_rate": 0.0005,
+    "slippage_rate": 0.0005
+  }
+}
