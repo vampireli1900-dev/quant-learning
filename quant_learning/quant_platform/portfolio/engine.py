@@ -115,7 +115,9 @@ def compute_weights(signals: pd.DataFrame, returns: pd.DataFrame,
             w = w.clip(lower=-max_weight, upper=max_weight)
             pool = ((w.abs() < max_weight - 1e-9) & (w.abs() > 0))
             pool_sum = pool.sum(axis=1).replace(0, np.nan)
-            add = (excess / pool_sum)
+            # 关键：所有活跃标的都已触及上限时 pool_sum 为 nan，
+            # 必须 fillna(0)，否则 nan 会经 `nan*0` 扩散，把整行权重清零
+            add = (excess / pool_sum).fillna(0.0)
             w = w + add.to_numpy().reshape(-1, 1) * pool.values * np.sign(w.values)
 
     # 组合层面波动率目标
