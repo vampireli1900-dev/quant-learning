@@ -50,12 +50,38 @@ class IBBroker:
 
     # ---------------- 连接 ----------------
     def connect(self) -> bool:
+        """
+        连接 TWS。clientId 撞号（IB 错误 326）在多脚本并行时很常见，
+        这里自动往后试若干个 id，而不是直接失败。
+        """
+        import random
         from ib_insync import IB
-        if self._ib is None or not self._ib.isConnected():
-            self._ib = IB()
-            self._ib.connect(self.cfg.host, self.cfg.port,
-                             clientId=self.cfg.client_id, timeout=self.cfg.timeout)
-        return self._ib.isConnected()
+
+        if self._ib is not None and self._ib.isConnected():
+            return True
+
+        base = int(self.cfg.client_id)
+        tried = [base] + [base + i for i in (1, 2, 3, 5, 7, 11)] + \
+                [random.randint(100, 900)]
+        last_err = None
+        for cid in tried:
+            ib = IB()
+            try:
+                ib.connect(self.cfg.host, self.cfg.port,
+                           clientId=cid, timeout=self.cfg.timeout)
+                if ib.isConnected():
+                    self._ib = ib
+                    self.cfg.client_id = cid
+                    return True
+            except Exception as e:                            # noqa: BLE001
+                last_err = e
+                try:
+                    ib.disconnect()
+                except Exception:                             # noqa: BLE001
+                    pass
+        if last_err:
+            print(f"[警告] IB 连接失败（已试 {len(tried)} 个 clientId）：{last_err}")
+        return False
 
     def disconnect(self):
         if self._ib and self._ib.isConnected():

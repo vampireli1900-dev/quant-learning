@@ -223,6 +223,47 @@ def cmd_signal(args):
     _print_df(mon.scan())
 
 
+def cmd_paper(args):
+    """模拟盘自动交易监控（默认 dry-run，绝不真发单）。"""
+    from .live import PaperConfig, PaperTrader, default_paper_config
+    from .risk import RiskOverlay, PRESETS
+
+    if args.preset:
+        cfg = default_paper_config(args.name or "adx_paper")
+        if args.symbols:
+            cfg.symbols = args.symbols
+        if args.strategy:
+            cfg.strategy = args.strategy
+    else:
+        cfg = PaperConfig(
+            name=args.name or "paper",
+            symbols=args.symbols or ["SPY", "QQQ"],
+            strategy=args.strategy or "ADX趋势过滤",
+            scheme=args.scheme,
+            capital=args.capital,
+            dry_run=not args.execute,
+        )
+    if args.overlay and args.overlay != "无风控":
+        cfg.overlay = PRESETS.get(args.overlay, RiskOverlay(name=args.overlay))
+
+    dry = not args.execute
+    if args.execute and not args.yes:
+        print("危险：这会真实发单！请加 --yes 确认，或去掉 --execute 先看计划。")
+        return
+
+    trader = PaperTrader(cfg)
+    print(f"配置: 策略={cfg.strategy} 标的={cfg.symbols} 资金={cfg.capital:,.0f} "
+          f"权重={cfg.scheme} 风控={cfg.overlay.describe() if cfg.overlay else '无'} "
+          f"dry_run={dry}")
+    if args.daemon:
+        trader.run_daemon(interval=args.interval, max_rounds=args.rounds,
+                          ignore_hours=args.ignore_hours, execute=args.execute)
+    else:
+        r = trader.check(execute=args.execute)
+        print(PaperTrader.format(r))
+    print(f"\n状态目录: {trader.dir}")
+
+
 def cmd_order(args):
     """下单（默认 dry-run）。"""
     from .live import IBBroker
@@ -318,6 +359,25 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--strategy", nargs="+", default=None)
     s.add_argument("--duration", default="2 Y")
     s.set_defaults(func=cmd_signal)
+
+    pp = sub.add_parser("paper", help="模拟盘自动交易监控（默认 dry-run）")
+    pp.add_argument("--name", default=None)
+    pp.add_argument("--symbols", nargs="*", default=None)
+    pp.add_argument("--strategy", default=None)
+    pp.add_argument("--scheme", default="equal")
+    pp.add_argument("--capital", type=float, default=100_000)
+    pp.add_argument("--overlay", default=None,
+                    help="风控方案：无风控/ATR移动止损/固定止损8%/ATR止损+止盈/"
+                         "波动率目标15%/波动目标+ATR止损/全套风控")
+    pp.add_argument("--preset", action="store_true",
+                    help="用回测结论驱动的默认配置（ADX趋势过滤+ATR止损，8标的）")
+    pp.add_argument("--daemon", action="store_true", help="常驻循环")
+    pp.add_argument("--interval", type=int, default=3600)
+    pp.add_argument("--rounds", type=int, default=None)
+    pp.add_argument("--ignore-hours", action="store_true", help="忽略交易时段限制")
+    pp.add_argument("--execute", action="store_true", help="真实发单（默认只出计划）")
+    pp.add_argument("--yes", action="store_true")
+    pp.set_defaults(func=cmd_paper)
 
     od = sub.add_parser("order", help="下单（默认 dry-run）")
     od.add_argument("symbol")
