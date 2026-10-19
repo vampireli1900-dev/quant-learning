@@ -198,7 +198,10 @@ def compute_metrics(returns: pd.Series,
 
     # 月度/年度胜率
     monthly = equity.resample("ME").last().pct_change().dropna() if isinstance(equity.index, pd.DatetimeIndex) else pd.Series(dtype=float)
-    monthly_win = float((monthly > 0).mean()) if len(monthly) else np.nan
+    # 注意：空仓月份收益恒为 0，若直接计入会把"没交易"误判成"没赚钱"，
+    # 让低暴露策略的月度胜率被系统性低估。这里只统计真正有波动的月份。
+    active_months = monthly[monthly.abs() > 1e-9]
+    monthly_win = float((active_months > 0).mean()) if len(active_months) else np.nan
 
     m = {
         # 收益
@@ -222,7 +225,8 @@ def compute_metrics(returns: pd.Series,
         "月度胜率": monthly_win,
         "单日最大亏损": float(r.min()),
         # 稳定性
-        "最长连亏(月)": _max_consecutive_negative(monthly) if len(monthly) else np.nan,
+        "最长连亏(月)": _max_consecutive_negative(active_months) if len(active_months) else np.nan,
+        "有效月份数": float(len(active_months)),
     }
 
     # 交易统计

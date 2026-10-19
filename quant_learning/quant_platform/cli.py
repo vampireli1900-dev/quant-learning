@@ -110,6 +110,38 @@ def cmd_experiment(args):
     print(f"HTML 报告: {path}")
 
 
+def cmd_portfolio(args):
+    """多标的组合回测。"""
+    from .data import get_data
+    from .strategies import create
+    from .portfolio import run_portfolio, compare_schemes, diversification_benefit
+    data = {s: get_data(s, duration=args.duration) for s in args.symbols}
+    strat = create(args.strategy) if args.strategy != "买入持有" else None
+    if strat is None:
+        signals = {s: pd.Series(1.0, index=d.index) for s, d in data.items()}
+        label = "买入持有"
+    else:
+        signals = {s: strat.signals(d) for s, d in data.items()}
+        label = args.strategy
+    print(f"标的 {len(data)} 个 | 策略 {label}")
+    cmp_df = compare_schemes(data, signals)
+    _print_df(cmp_df)
+    best = cmp_df.sort_values("夏普比率", ascending=False).iloc[0]["权重方案"]
+    print(f"\n最优权重方案：{best}")
+    res = run_portfolio(data, signals, name=f"{label}/{best}", scheme=str(best))
+    print()
+    print(res.summary())
+    print("\n逐标的贡献:")
+    _print_df(res.contributions.to_frame("收益贡献"))
+    print("\n分散化收益（组合 vs 单标的平均）:")
+    _print_df(diversification_benefit(res, data, signals))
+    if args.save:
+        p = Path("results") / f"portfolio_{label}.csv"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        res.weights.to_csv(p, encoding="utf-8-sig")
+        print(f"\n权重已保存: {p}")
+
+
 def cmd_riskab(args):
     """风控 A/B 对比：同一信号套不同风控方案。"""
     from .data import get_data
@@ -215,6 +247,13 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--config", default="configs/demo.yaml")
     e.add_argument("--name", default=None)
     e.set_defaults(func=cmd_experiment)
+
+    pf = sub.add_parser("portfolio", help="多标的组合回测")
+    pf.add_argument("symbols", nargs="+")
+    pf.add_argument("--strategy", default="ADX趋势过滤")
+    pf.add_argument("--duration", default="5 Y")
+    pf.add_argument("--save", action="store_true")
+    pf.set_defaults(func=cmd_portfolio)
 
     ra = sub.add_parser("riskab", help="风控 A/B 对比")
     ra.add_argument("symbol")
