@@ -538,9 +538,23 @@ def cmd_board(args):
 
 
 def cmd_web(args):
-    """启动 TradingView 风格的 Web 展示终端。"""
+    """启动 TradingView 风格的 Web 展示终端（桌面 / 与移动端 /m 同端口）。"""
     from .web import run_server
     print(f"启动 Web 终端： http://{args.host}:{args.port}")
+    if args.host == "0.0.0.0":
+        # 手机要访问，就得绑 0.0.0.0；把局域网地址打出来方便直接扫
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            lan = s.getsockname()[0]
+            s.close()
+        except OSError:
+            lan = "<本机IP>"
+        print(f"  桌面版： http://{lan}:{args.port}/")
+        print(f"  移动版： http://{lan}:{args.port}/m   （手机同 Wi-Fi 直接打开）")
+    else:
+        print(f"  移动版： http://{args.host}:{args.port}/m")
     print("（Ctrl+C 停止）")
     run_server(host=args.host, port=args.port)
 

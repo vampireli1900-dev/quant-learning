@@ -1,0 +1,18 @@
+{
+  "name": "QuantLab 量化终端",
+  "short_name": "QuantLab",
+  "description": "量化模型实验终端 · 移动端：K 线、净值对比、组合、账户看板",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f131c",
+  "theme_color": "#131722",
+  "lang": "zh-CN",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

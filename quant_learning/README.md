@@ -266,6 +266,41 @@ stratName('ADX趋势过滤') // → 'ADX Trend Filter'
 切换语言会整页 reload，当前视图与标的通过 sessionStorage 还原。选这个方案而不是就地重绘，
 是因为界面有 8 个视图 + 大量动态渲染点，逐个重绘容易漏；reload 能保证不漏翻。
 
+### 手机网页版（/m）
+
+手机不是把桌面版等比缩小，而是独立的信息架构 —— 入口 `/m`：
+
+- **底部 5 Tab**：行情 / 净值 / 组合 / 账户 / 更多；排名、风控、信号监控、数据库
+  收进「更多」的二级滑入页（移动端表格改卡片，横屏手势友好）
+- **行情页**：K 线 + MA/布林/信号标记 + 成交量，顶部常驻 O/H/L/C 读数条
+  （手机没有悬停，靠拖动十字光标读取）；周期与叠加层用分段控件
+- **账户页**：净值 hero 卡（当日盈亏/持仓盈亏/杠杆 chips）、四宫格资金卡、
+  资产配置条、持仓卡片（权重条 + 原币种标签）、净值曲线、最近委托
+- **手势细节**：图表纵向拖动已关闭（手指上下滑 = 滚页面，左右滑才是平移 K 线，
+  这是移动端 K 线最常踩的坑）；行情/账户页支持下拉刷新
+- **PWA**：`mobile.webmanifest` + 图标齐全，「添加到主屏幕」后以独立窗口打开；
+  桌面 `/` 对手机 UA 自动跳 `/m`，`?desktop=1` 或移动端里的「桌面版」可回到宽屏
+- **中英文**：与桌面版共用 `i18n.js` 字典，移动端专属文案以 `m.*` 键并入
+
+后端零改动（复用同一套只读 API），新增文件：
+
+```
+quant_platform/web/static/mobile.html          # 移动端骨架
+quant_platform/web/static/css/mobile.css       # 移动端样式（safe-area / dvh / 手势）
+quant_platform/web/static/js/mobile.js         # 移动端逻辑（懒加载 + 堆叠权重 + 二级页）
+quant_platform/web/static/mobile.webmanifest   # PWA manifest
+quant_platform/web/static/icon-{192,512}.png / apple-touch-icon.png
+```
+
+手机访问（与电脑同一 Wi-Fi）：
+
+```bash
+python -m quant_platform.cli web --host 0.0.0.0 --port 8772
+# 启动时会直接打印局域网地址：
+#   桌面版： http://192.168.x.x:8772/
+#   移动版： http://192.168.x.x:8772/m
+```
+
 ---
 
 ## 七、数据库系统（SQL 持久化）

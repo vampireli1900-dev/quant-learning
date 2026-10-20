@@ -172,6 +172,22 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/m")
+@app.get("/m/")
+def mobile_index():
+    """手机网页版入口（浏览器 UA 检测由前端完成，桌面访问 / 不会被强跳）。"""
+    return FileResponse(STATIC_DIR / "mobile.html")
+
+
+# StaticFiles 对 .webmanifest 的 MIME 猜测不稳定，显式按标准类型返回
+@app.get("/static/mobile.webmanifest")
+def mobile_manifest():
+    return FileResponse(
+        STATIC_DIR / "mobile.webmanifest",
+        media_type="application/manifest+json",
+    )
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

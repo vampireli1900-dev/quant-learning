@@ -4,6 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QuantLab · 量化模型实验终端</title>
+<script>
+/* 手机访问自动跳移动端 /m；
+   ?desktop=1 或点过移动端里的「桌面版」后记住选择，不再强跳 */
+(function () {
+  try {
+    if (/[?&]desktop=1/.test(location.search)) {
+      sessionStorage.setItem('qp_desktop', '1');
+      return;
+    }
+    if (sessionStorage.getItem('qp_desktop') === '1') return;
+    var ua = navigator.userAgent || '';
+    var mobile = /Android|iPhone|iPod|Windows Phone|HarmonyOS|Mobile/i.test(ua)
+      || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));   // iPad 桌面 UA
+    if (mobile && Math.min(screen.width, screen.height) < 820) {
+      location.replace('/m');
+    }
+  } catch (e) { /* 隐私模式等忽略 */ }
+})();
+</script>
 <link rel="stylesheet" href="/static/css/app.css?v=20261020e">
 </head>
 <body>
