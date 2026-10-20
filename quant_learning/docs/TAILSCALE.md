@@ -166,12 +166,28 @@ Tailscale 本身：托盘图标 → Log out / Disconnect；
 
 ## 5. 常见问题
 
+### 手机打不开 —— 先跑诊断
+
+```bash
+E:\Programs\miniconda\envs\aicode\python.exe -m quant_platform.cli public-check
+```
+
+看第 **[5]** 项，它会直接告诉你卡在哪一步：
+
+- `✗ tailnet 里只有本机一台设备` → **手机还没加入**，这是最常见的原因。
+  手机装 App 后用**和电脑同一个账号**登录（电脑上是 `vampireli1900@`，
+  换账号就等于换了一个网络，永远连不上），然后打开 VPN 开关。
+  可以在 https://login.tailscale.com/admin/machines 核对设备列表。
+- `✓ 已连接设备 N 台` 但手机仍打不开 → 再看下面那张表。
+
 | 现象 | 处理 |
 |---|---|
 | 手机打不开，但 `public-check` 显示已登录 | ①手机 Tailscale App 的 VPN 开关是否打开 ②手机和电脑是否同一账号 ③服务是否绑在 Tailscale IP 上（用 `start_tailscale.bat`） |
+| 电脑能 `curl http://100.x.y.z:8772/login` 通，手机不行 | 手机多半没连上；若手机确实在线，检查 Windows 防火墙（见下） |
+| Windows 防火墙拦截入站 | 默认三个配置文件都是关闭的，一般不会被拦。若你手动开过防火墙，双击 `deploy\fw_allow_tailscale.bat`（会弹 UAC，点「是」）——它只放行来源为 `100.64.0.0/10` 的 8772 入站 |
 | 登录页提示"明文 HTTP 不安全" | 代码已排除 Tailscale 地址（100.64/10 段、*.ts.net），不会误报；如果还出现，说明你用的不是隧道地址 |
 | 连不上、很慢 | 两端可能在走中继（打洞失败）。看 `tailscale status`，直连会显示 `direct`，中继显示 `relay`。家用路由一般能直连 |
-| 电脑关机后手机就连不上 | 正常，服务跑在你家电脑上。想 7×24 就得让电脑别睡：电源设置里关掉睡眠 |
+| 电脑关机 / 睡眠后手机连不上 | 正常，服务跑在你家电脑上。想 7×24 就得让电脑别睡：电源设置里关掉睡眠 |
 | 想给家人也访问 | 后台发邀请（免费版可加用户），或后面接 Cloudflare Tunnel 用域名公开 |
 
 ---

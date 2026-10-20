@@ -680,6 +680,7 @@ def cmd_public_check(args):
             ips = me.get("TailscaleIPs") or []
             ip = ips[0] if ips else None
             name = (me.get("DNSName") or "").rstrip(".")
+            peers = st.get("Peer") or {}
             if ip:
                 ts_ip = ip
                 print(f"  ✓ 已登录：{ip}" + (f"  （{name}）" if name else ""))
@@ -688,6 +689,18 @@ def cmd_public_check(args):
                       f"外网和家里其他设备都摸不到）")
             else:
                 print("  ✗ 未登录 → 执行 tailscale up，打开它给的链接完成授权")
+            # 只有自己一台设备 = 手机还没加入，这是「手机打不开」最常见的原因
+            if not peers:
+                print("  ✗ tailnet 里只有本机一台设备 —— 手机还没加入，必然打不开")
+                print("     处理：手机装 Tailscale App，用【和本机相同的账号】登录，开 VPN 开关")
+                print("     核对设备列表： https://login.tailscale.com/admin/machines")
+            else:
+                print(f"  ✓ 已连接设备 {len(peers)} 台：")
+                for _p in peers.values():
+                    _ips = _p.get("TailscaleIPs") or []
+                    _on = "在线" if _p.get("Online") else "离线"
+                    print(f"     - {_p.get('HostName', '?')}  {(_ips or ['?'])[0]}  {_on}"
+                          f"  ({_p.get('OS', '?')})")
         except Exception as e:                                 # noqa: BLE001
             print(f"  ? 状态读取失败：{type(e).__name__}")
     cf = shutil.which("cloudflared")
