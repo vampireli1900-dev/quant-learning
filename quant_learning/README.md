@@ -127,7 +127,8 @@ quant_learning/
 ├── scripts/account_daemon.py     # 账户快照常驻采样（攒净值曲线）
 ├── deploy/                       # 公网部署资产（Caddyfile / DDNS / 一键启停脚本）
 ├── docs/schema.sql               # 建表 DDL（db-dump 生成，可直接交付）
-├── docs/PUBLIC_DEPLOY.md         # 公网部署指南
+├── docs/PUBLIC_DEPLOY.md         # 公网部署指南（有公网 IP：端口转发 + DDNS + HTTPS）
+├── docs/TAILSCALE.md             # 无公网 IP（CGNAT）方案：Tailscale 组网
 ├── data/                         # SQLite 数据库（.gitignore 已排除）
 ├── data_cache/                   # 数据缓存（按 数据源_标的_周期_时长 命名）
 ├── results/                      # 实验结果（CSV + HTML 报告）
@@ -349,6 +350,22 @@ python deploy/ddns.py --provider duckdns --domain <名> --token <令牌> --insta
 
 完整步骤、CGNAT 判断、排查表见 **`docs/PUBLIC_DEPLOY.md`**。
 
+### 没有公网 IP（CGNAT）时：改用 Tailscale 组网
+
+路由器 WAN 口是 `100.64.x.x` / `10.x` / `192.168.x` 就属于这种情况，
+端口转发写了也不会有人能触发。Tailscale 反过来做 —— 家里机器主动外连，
+手机和它组成 WireGuard 加密虚拟局域网，**不用公网 IP、不用开端口、不用域名**：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\tailscale_setup.ps1   # 电脑装 + 登录
+# 手机装 Tailscale App，用同一账号登录（一次性）
+deploy\start_tailscale.bat                                            # 只绑 Tailscale IP 启动
+# 手机浏览器： http://100.x.y.z:8772/m
+```
+
+服务只监听 Tailscale 虚拟网卡，家里其他设备和公网都连不上，
+是这几种方案里暴露面最小的。详见 **`docs/TAILSCALE.md`**。
+
 ---
 
 ## 七、公网部署安全层与部署文件
@@ -364,7 +381,10 @@ python deploy/ddns.py --provider duckdns --domain <名> --token <令牌> --insta
 | `deploy/ddns.py` | 动态 DNS 更新（duckdns / 通用 URL），可注册计划任务 |
 | `deploy/start_public.bat` / `stop_public.bat` | 一键启停（应用只听回环 + Caddy） |
 | `deploy/install_autostart.ps1` | 开机自启计划任务（可 `-Uninstall`） |
+| `deploy/tailscale_setup.ps1` | Tailscale 安装与登录（无公网 IP 方案） |
+| `deploy/start_tailscale.bat` | 只绑 Tailscale 网卡 IP 启动（暴露面最小） |
 | `docs/PUBLIC_DEPLOY.md` | 完整部署指南（架构图 / 五步走 / 排查表） |
+| `docs/TAILSCALE.md` | 无公网 IP（CGNAT）时的 Tailscale 组网指南 |
 
 ---
 

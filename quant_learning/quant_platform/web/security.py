@@ -648,7 +648,11 @@ function apply(){const d=S[lang]||S.zh;
  const e=document.getElementById('err'); if(e.dataset.k) e.textContent=d[e.dataset.k];}
 document.getElementById('lang').onclick=()=>{lang=lang==='zh'?'en':'zh';localStorage.setItem('qp_lang',lang);apply();};
 apply();
-if(location.protocol==='http:'&&location.hostname!=='127.0.0.1'&&location.hostname!=='localhost'){
+// Tailscale 的 100.64.0.0/10 与 *.ts.net 走的是 WireGuard 加密隧道，
+// 虽然浏览器显示 http://，但流量本身已是端到端加密，不该报警
+var _h=location.hostname;
+var _tun=/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(_h)||/\.ts\.net$/.test(_h);
+if(location.protocol==='http:'&&_h!=='127.0.0.1'&&_h!=='localhost'&&!_tun){
   const w=document.getElementById('warn');w.innerHTML=(S[lang]||S.zh).w;w.classList.add('on');}
 const next=new URLSearchParams(location.search).get('next')||'/';
 document.getElementById('f').onsubmit=async(ev=>{ev.preventDefault();

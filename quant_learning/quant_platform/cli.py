@@ -658,7 +658,40 @@ def cmd_public_check(args):
         lan = "<未知>"
     print(f"  内网 IP：{lan}")
 
-    print(f"\n[5] 公网出口（路由器 WAN 口应与它一致；不一致说明是多层 NAT，转发无效）")
+    print(f"\n[5] 穿透通道（没有公网 IP 时靠它）")
+    import shutil
+    import subprocess
+    ts = shutil.which("tailscale")
+    if not ts:
+        cand = Path(r"C:\Program Files\Tailscale\tailscale.exe")
+        ts = str(cand) if cand.exists() else None
+    if not ts:
+        print("  ✗ Tailscale 未安装")
+        print("     安装： powershell -ExecutionPolicy Bypass -File deploy\\tailscale_setup.ps1")
+    else:
+        print(f"  ✓ Tailscale：{ts}")
+        try:
+            import json as _j
+            r = subprocess.run([ts, "status", "--json"], capture_output=True,
+                               text=True, timeout=20)
+            st = _j.loads(r.stdout or "{}")
+            me = st.get("Self") or {}
+            ips = me.get("TailscaleIPs") or []
+            ip = ips[0] if ips else None
+            name = (me.get("DNSName") or "").rstrip(".")
+            if ip:
+                print(f"  ✓ 已登录：{ip}" + (f"  （{name}）" if name else ""))
+                print(f"     手机访问： http://{ip}:8772/m")
+                print(f"     启动方式： deploy\\start_tailscale.bat（只绑 {ip}，"
+                      f"外网和家里其他设备都摸不到）")
+            else:
+                print("  ✗ 未登录 → 执行 tailscale up，打开它给的链接完成授权")
+        except Exception as e:                                 # noqa: BLE001
+            print(f"  ? 状态读取失败：{type(e).__name__}")
+    cf = shutil.which("cloudflared")
+    print(f"  {'✓' if cf else '—'} Cloudflare Tunnel：{cf or '未安装（Tailscale 够用的话不用管）'}")
+
+    print(f"\n[6] 公网出口（路由器 WAN 口应与它一致；不一致说明是多层 NAT，转发无效）")
     pub_ip = None
     try:
         import urllib.request
@@ -670,7 +703,7 @@ def cmd_public_check(args):
         print(f"  公网 IP：{pub_ip}")
         print(f"  家用宽带多为动态 IP → 需要 DDNS，见 docs/PUBLIC_DEPLOY.md")
 
-    print(f"\n[6] 本机服务健康")
+    print(f"\n[7] 本机服务健康")
     hz = None
     try:
         import urllib.request, json as _json
