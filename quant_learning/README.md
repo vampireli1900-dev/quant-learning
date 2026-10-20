@@ -310,6 +310,10 @@ python -m quant_platform.cli web --host 0.0.0.0 --port 8772
 
 ### 公网访问的部署准备（鉴权 / HTTPS / DDNS）
 
+> 项目路径 `D:\pycharm_file\2026_stork\quant_learning`；
+> Python 用 conda 的 `aicode` 环境：`E:\Programs\miniconda\envs\aicode\python.exe`
+> （PATH 里默认的 `python` 没装项目依赖，会报 `No module named 'uvicorn'`）。
+
 在家以外的地方也能打开，走的是「路由器端口转发 + DDNS + Caddy 自动 HTTPS」，
 安全层已内置在应用里（零新增依赖）：
 

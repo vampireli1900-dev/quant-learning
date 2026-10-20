@@ -9,18 +9,23 @@ echo  QuantLab public launcher
 echo ============================================================
 
 rem ---------------- locate python ----------------
+rem 必须挑「装了项目依赖」的解释器：PATH 里排第一位的 python 未必带
+rem uvicorn/fastapi/numpy（比如各种 IDE 自带的托管 python），
+rem 所以逐个候选试 import，能跑通才用。
 set "PY="
-if defined QUANTLAB_PY set "PY=%QUANTLAB_PY%"
-if not defined PY (
-  for /f "delims=" %%i in ('where python 2^>nul') do (
-    if not defined PY set "PY=%%i"
+for %%P in ("%QUANTLAB_PY%" "E:\Programs\miniconda\envs\aicode\python.exe" "E:\Programs\miniconda\python.exe" "%USERPROFILE%\miniconda3\envs\aicode\python.exe" "%USERPROFILE%\anaconda3\envs\aicode\python.exe" "python") do (
+  if not defined PY (
+    if not "%%~P"=="" (
+      %%~P -c "import uvicorn, fastapi, numpy" >nul 2>&1
+      if not errorlevel 1 set "PY=%%~P"
+    )
   )
 )
-if not defined PY if exist "E:\Programs\miniconda\envs\aicode\python.exe" set "PY=E:\Programs\miniconda\envs\aicode\python.exe"
-if not defined PY if exist "%USERPROFILE%\miniconda3\envs\aicode\python.exe" set "PY=%USERPROFILE%\miniconda3\envs\aicode\python.exe"
-if not defined PY if exist "%USERPROFILE%\anaconda3\envs\aicode\python.exe" set "PY=%USERPROFILE%\anaconda3\envs\aicode\python.exe"
 if not defined PY (
-  echo [X] Python not found. Set QUANTLAB_PY=full\path\to\python.exe
+  echo [X] No python with the project dependencies found.
+  echo     Tried: QUANTLAB_PY, conda env "aicode", PATH python
+  echo     Fix:   set QUANTLAB_PY=E:\Programs\miniconda\envs\aicode\python.exe
+  echo            or install: pip install uvicorn fastapi numpy pandas
   pause
   exit /b 1
 )

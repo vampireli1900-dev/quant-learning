@@ -35,9 +35,26 @@ if ($Uninstall) {
 Write-Host "Installing QuantLab autostart tasks..." -ForegroundColor Cyan
 
 # ---- 1. 主服务（登录时启动）----
-$py = $env:QUANTLAB_PY
-if (-not $py) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
-if (-not $py) { $py = "python" }
+# 必须挑装了项目依赖的解释器，PATH 里第一个 python 未必带 uvicorn
+$candidates = @(
+    $env:QUANTLAB_PY,
+    "E:\Programs\miniconda\envs\aicode\python.exe",
+    "$env:USERPROFILE\miniconda3\envs\aicode\python.exe",
+    "$env:USERPROFILE\anaconda3\envs\aicode\python.exe",
+    (Get-Command python -ErrorAction SilentlyContinue).Source
+) | Where-Object { $_ -and (Test-Path $_) }
+
+$py = $null
+foreach ($c in $candidates) {
+    & $c -c "import uvicorn, fastapi, numpy" 2>$null
+    if ($LASTEXITCODE -eq 0) { $py = $c; break }
+}
+if (-not $py) {
+    Write-Host "  [x] No python with project dependencies found." -ForegroundColor Red
+    Write-Host "      Set `$env:QUANTLAB_PY to the right interpreter and retry." -ForegroundColor Yellow
+    exit 1
+}
+Write-Host "  python: $py" -ForegroundColor DarkGray
 
 $action = "cmd.exe /c `"$bat`""
 schtasks /Create /F /TN "QuantLabWeb" /SC ONLOGON /TR $action /RL HIGHEST 2>&1 | Out-Null

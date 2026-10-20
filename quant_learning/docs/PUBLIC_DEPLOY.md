@@ -6,6 +6,45 @@
 
 ---
 
+## 先确认两件事：项目路径和 Python
+
+```bat
+:: 所有命令都在这个目录下执行
+cd /d D:\pycharm_file\2026_stork\quant_learning
+```
+
+**Python 要用 conda 的 `aicode` 环境**，依赖（uvicorn / fastapi / numpy）都装在这里：
+
+```bat
+E:\Programs\miniconda\envs\aicode\python.exe
+```
+
+> ⚠️ PATH 里排第一位的 `python` 是另一个解释器（WorkBuddy 托管的 3.13），
+> **没有装项目依赖**，直接 `python -m quant_platform.cli ...` 会报
+> `ModuleNotFoundError: No module named 'uvicorn'`。
+
+下文所有 `python` 都指上面那个完整路径。想少打字，二选一：
+
+```bat
+:: 方式一：设环境变量（deploy\*.bat 会自动优先用它）
+set QUANTLAB_PY=E:\Programs\miniconda\envs\aicode\python.exe
+
+:: 方式二：配一个别名（当前窗口有效）
+doskey python=E:\Programs\miniconda\envs\aicode\python.exe $*
+```
+
+或者直接用 conda：
+
+```bat
+conda activate aicode
+python -m quant_platform.cli public-check
+```
+
+`deploy\start_public.bat` 会自己逐个试候选解释器并挑能 import 依赖的那个，
+所以双击它不需要你操心 Python 路径。
+
+---
+
 ## 0. 先想清楚暴露的是什么
 
 这个服务不是博客，它连着你的真实 IBKR 账户。放到公网上，别人猜到地址就能看到：
