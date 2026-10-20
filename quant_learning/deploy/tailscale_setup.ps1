@@ -1,19 +1,28 @@
-# ============================================================
+﻿# ============================================================
 # deploy\tailscale_setup.ps1 —— 没有公网 IP（CGNAT）时的方案：Tailscale 组网
 #
 # 原理：端口转发是「外面主动连进来」，CGNAT 下这条路被运营商堵死；
 #        Tailscale 反过来 —— 家里机器主动连出去，手机和它组成加密虚拟局域网，
 #        路由器不用开任何端口，也不需要公网 IP。
 #
-# 用法（PowerShell）：
-#   powershell -ExecutionPolicy Bypass -File deploy\tailscale_setup.ps1
-#   powershell -ExecutionPolicy Bypass -File deploy\tailscale_setup.ps1 -Status   # 只看状态
+# 用法（PowerShell，注意 PowerShell 里没有 cd /d，直接 cd 即可）：
+#   cd D:\pycharm_file\2026_stork\quant_learning
+#   powershell -ExecutionPolicy Bypass -File .\deploy\tailscale_setup.ps1
+#   powershell -ExecutionPolicy Bypass -File .\deploy\tailscale_setup.ps1 -Status  # 只看状态
+#
+# 注意：本文件必须存成 UTF-8 with BOM，否则 Windows PowerShell 5.1 会按 GBK 解析
+#       导致中文全部乱码（PowerShell 7 无此问题）。
 # ============================================================
 param(
     [switch]$Status
 )
 
 $ErrorActionPreference = "Continue"
+
+# 切到脚本所在目录：这样无论从哪个目录调用，相对路径都能对上
+if ($PSScriptRoot) { Set-Location $PSScriptRoot }
+$batFile = Join-Path $PSScriptRoot "start_tailscale.bat"
+
 $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
 $msi   = "$env:TEMP\tailscale-setup-latest-amd64.msi"
 
@@ -75,7 +84,9 @@ Write-Step 2 "登录 Tailscale 账号"
 $self = $null
 try {
     $st = & $tsExe status --json 2>$null | ConvertFrom-Json
-    if ($st -and $st.Self) { $self = $st.Self }
+    # 注意：未登录时 status --json 也会返回一个 Self 对象（DNSName 为空、Online=false）。
+    # 只判断 $st.Self 存在会误判成「已登录」，从而跳过授权 —— 必须同时校验 DNSName 和 Online。
+    if ($st -and $st.Self -and $st.Self.DNSName -and $st.Self.Online) { $self = $st.Self }
 } catch { }
 
 if (-not $self) {
@@ -94,7 +105,7 @@ if (-not $self) {
         Start-Sleep -Seconds 3
         try {
             $st = & $tsExe status --json 2>$null | ConvertFrom-Json
-            if ($st -and $st.Self -and $st.Self.Online) { $self = $st.Self; break }
+            if ($st -and $st.Self -and $st.Self.Online -and $st.Self.DNSName) { $self = $st.Self; break }
         } catch { }
     }
     Remove-Job $job -Force -ErrorAction SilentlyContinue
@@ -110,10 +121,12 @@ Write-Ok "已登录：$($self.DNSName)"
 # ---------- 3. 地址 ----------
 Write-Step 3 "本机在虚拟局域网里的地址"
 
-$ip = (& $tsExe ip -4 2>$null | Select-Object -First 1).Trim()
+$ip = (& $tsExe ip -4 2>$null | Select-Object -First 1 | Out-String).Trim()
+if (-not $ip -or $ip -match 'no current|error|Err') { $ip = '(还没拿到 IP)' }
+$dns = if ($self.DNSName) { $self.DNSName.TrimEnd('.') } else { '(未分配)' }
 Write-Host ""
 Write-Host "     Tailscale IP : $ip" -ForegroundColor White
-Write-Host "     MagicDNS 名  : $($self.DNSName.TrimEnd('.'))" -ForegroundColor White
+Write-Host "     MagicDNS 名  : $dns" -ForegroundColor White
 Write-Host ""
 
 # ---------- 4. 手机端 ----------
@@ -126,14 +139,16 @@ Write-Host ""
 
 # ---------- 5. 启动服务 ----------
 Write-Step 5 "启动服务（只监听 Tailscale 网卡）"
-Write-Host "     执行： deploy\start_tailscale.bat"
+Write-Host "     执行： $batFile"
 Write-Host "     它会把服务绑定到 $ip ，"
 Write-Host "     这样家里局域网和公网都摸不到，只有你登录了 Tailscale 的设备能访问。"
 Write-Host ""
 Write-Host "     手机浏览器打开：" -NoNewline
 Write-Host " http://$ip`:8772/m" -ForegroundColor Green
-Write-Host "     或者更好记：  " -NoNewline
-Write-Host " http://$($self.DNSName.TrimEnd('.')):8772/m" -ForegroundColor Green
+if ($dns -notmatch '^\(') {
+    Write-Host "     或者更好记：  " -NoNewline
+    Write-Host " http://$dns:8772/m" -ForegroundColor Green
+}
 Write-Host ""
 
 # ---------- 6. 可选：固定 IP / 免登录过期 ----------

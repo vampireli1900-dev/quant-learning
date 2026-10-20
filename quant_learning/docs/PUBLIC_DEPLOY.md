@@ -14,9 +14,28 @@
 
 ## 先确认两件事：项目路径和 Python
 
+项目根目录：
+
+```
+D:\pycharm_file\2026_stork\quant_learning
+```
+
+> ⚠️ **cmd 和 PowerShell 的 `cd` 不一样**：`cd /d` 是 **cmd** 的写法，
+> 在 PowerShell 里会报 `找不到接受实际参数…的位置形式参数`。
+> - **PowerShell** 里直接 `cd D:\pycharm_file\2026_stork\quant_learning`（没有 `/d`）
+> - **cmd** 里才用 `cd /d D:\...`
+>
+> 下面代码块用 ```bat 标注的请在 **cmd** 里跑，用 ```powershell 标注的请在 **PowerShell** 里跑。
+> 不知道自己在哪个？看提示符：以 `PS C:\...>` 开头的是 PowerShell，以 `C:\...>` 开头的是 cmd。
+
 ```bat
-:: 所有命令都在这个目录下执行
+:: cmd：
 cd /d D:\pycharm_file\2026_stork\quant_learning
+```
+
+```powershell
+# PowerShell：
+cd D:\pycharm_file\2026_stork\quant_learning
 ```
 
 **Python 要用 conda 的 `aicode` 环境**，依赖（uvicorn / fastapi / numpy）都装在这里：

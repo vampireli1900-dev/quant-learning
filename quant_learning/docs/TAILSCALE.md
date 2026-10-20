@@ -50,15 +50,31 @@
 
 ## 3. 三步上手
 
-### 第 1 步 · 电脑装 Tailscale
+> ⚠️ **先看清你在哪个终端**：提示符是 `PS C:\...>` 就是 **PowerShell**，
+> 是 `C:\...>` 就是 **cmd**。两者的 `cd` 写法不同：
+> - PowerShell：`cd D:\pycharm_file\2026_stork\quant_learning`（**没有 `/d`**）
+> - cmd：`cd /d D:\pycharm_file\2026_stork\quant_learning`
+>
+> 你打开的 PowerShell 默认停在 `C:\WINDOWS\system32`，**必须先 cd 到项目目录**，
+> 否则 `deploy\tailscale_setup.ps1` 这个相对路径找不到文件。
+
+### 第 1 步 · 电脑装 Tailscale + 登录
+
+**最简单：双击 `deploy\install_tailscale.bat`**（文件管理器里双击即可，不用管终端）。
+
+或者手动跑。在 **PowerShell** 里（两行，一行一行来）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File deploy\tailscale_setup.ps1
+cd D:\pycharm_file\2026_stork\quant_learning
+powershell -ExecutionPolicy Bypass -File .\deploy\tailscale_setup.ps1
 ```
+
+> 注意是 `.\deploy\...`，带 `.\` 前缀。不带的话 PowerShell 会把它当命令名而不是文件路径，
+> 报「`-File 形式参数的实际参数…不存在`」。
 
 脚本会：检查/安装 → 打开浏览器让你授权登录 → 打印本机在虚拟网里的 IP 和名字。
 
-装完后确认：
+装完后确认（**cmd 或 PowerShell 都行**）：
 
 ```bash
 E:\Programs\miniconda\envs\aicode\python.exe -m quant_platform.cli public-check
@@ -75,9 +91,21 @@ E:\Programs\miniconda\envs\aicode\python.exe -m quant_platform.cli public-check
 
 ### 第 3 步 · 启动服务
 
+`.bat` 是 cmd 脚本。**PowerShell** 里这样跑：
+
+```powershell
+cd D:\pycharm_file\2026_stork\quant_learning
+cmd /c "deploy\start_tailscale.bat"
+```
+
+**cmd** 里直接：
+
 ```bat
+cd /d D:\pycharm_file\2026_stork\quant_learning
 deploy\start_tailscale.bat
 ```
+
+最简单的是在文件管理器里**双击 `deploy\start_tailscale.bat`**（不用管终端）。
 
 它会把服务**只绑到 Tailscale 的那个 IP**（不是 `0.0.0.0`）：
 
