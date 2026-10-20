@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QuantLab · 量化模型实验终端</title>
-<link rel="stylesheet" href="/static/css/app.css?v=20261020c">
+<link rel="stylesheet" href="/static/css/app.css?v=20261020e">
 </head>
 <body>
 
 <div id="boot">
   <div class="boot-logo">Quant<span>Lab</span></div>
   <div class="boot-bar"><i></i></div>
-  <div class="boot-txt">正在连接行情与实验结果…</div>
+  <div class="boot-txt" data-i18n="boot.connecting">正在连接行情与实验结果…</div>
 </div>
 
 <div class="app" id="app" hidden>
@@ -30,7 +30,7 @@
 
     <div class="symbol-box">
       <input id="symbolInput" class="symbol-input" autocomplete="off"
-             spellcheck="false" placeholder="输入代码…">
+             spellcheck="false" data-i18n-ph="top.symbol.ph" placeholder="输入代码…">
       <div class="symbol-chips" id="symbolChips"></div>
     </div>
 
@@ -42,20 +42,25 @@
 
     <div class="top-right">
       <label class="sel-wrap">
-        <span>策略</span>
+        <span data-i18n="top.strategy">策略</span>
         <select id="strategySel" class="sel"></select>
       </label>
       <label class="sel-wrap">
-        <span>周期</span>
+        <span data-i18n="top.period">周期</span>
         <select id="durationSel" class="sel">
-          <option value="2 Y">2 年</option>
-          <option value="5 Y" selected>5 年</option>
+          <option value="2 Y" data-i18n="top.period.2y">2 年</option>
+          <option value="5 Y" selected data-i18n="top.period.5y">5 年</option>
         </select>
       </label>
       <div class="live-badge"><i></i><span id="liveTxt">SIM</span></div>
-      <div class="clock" id="clock" title="美东时间 · 美股 9:30-16:00 开盘">
+      <div class="clock" id="clock" data-i18n-title="top.clock.title"
+           title="美东时间 · 美股 9:30-16:00 开盘">
         <span class="clock-tz">ET</span><span id="clockTime">--:--</span>
         <span class="clock-state" id="clockState">—</span>
+      </div>
+      <div class="lang-sw" id="langSw" data-i18n-title="top.lang" title="语言">
+        <button class="lang-btn" data-lang="zh">中</button>
+        <button class="lang-btn" data-lang="en">EN</button>
       </div>
     </div>
   </header>
@@ -69,12 +74,12 @@
         <button class="nav-item active" data-view="chart">
           <svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 16V9m4 7V7m4 9v-4"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span>图表</span>
+          <span data-i18n="nav.chart">图表</span>
         </button>
         <button class="nav-item" data-view="equity">
           <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span>净值对比</span>
+          <span data-i18n="nav.equity">净值对比</span>
         </button>
         <button class="nav-item" data-view="portfolio">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none"
@@ -84,48 +89,48 @@
             stroke="currentColor" stroke-width="1.6"/><circle cx="19" cy="18" r="2.2" fill="none"
             stroke="currentColor" stroke-width="1.6"/><path d="M6.8 7.4l3.4 3m7-3l-3.4 3M6.8 16.6l3.4-3m7 3l-3.4-3"
             fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
-          <span>组合</span>
+          <span data-i18n="nav.portfolio">组合</span>
         </button>
         <button class="nav-item" data-view="rank">
           <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span>模型排名</span>
+          <span data-i18n="nav.rank">模型排名</span>
         </button>
         <button class="nav-item" data-view="risk">
           <svg viewBox="0 0 24 24"><path d="M12 3l8 4v6c0 5-4 7-8 8-4-1-8-3-8-8V7l8-4z"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-          <span>风控与显著性</span>
+          <span data-i18n="nav.risk">风控与显著性</span>
         </button>
         <button class="nav-item" data-view="watch">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none"
             stroke="currentColor" stroke-width="2"/><path d="M12 7v5l4 2"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span>信号监控</span>
+          <span data-i18n="nav.watch">信号监控</span>
         </button>
         <button class="nav-item" data-view="account">
           <svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9z"
             fill="none" stroke="currentColor" stroke-width="2"/>
             <path d="M3 10h18" fill="none" stroke="currentColor" stroke-width="2"/>
             <circle cx="17" cy="14.5" r="1.4" fill="currentColor"/></svg>
-          <span>账户</span>
+          <span data-i18n="nav.account">账户</span>
         </button>
         <button class="nav-item" data-view="db">
           <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="3" fill="none"
             stroke="currentColor" stroke-width="1.8"/><path d="M4.5 6v12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"
             fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3"
             fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          <span>数据库</span>
+          <span data-i18n="nav.db">数据库</span>
         </button>
       </nav>
 
       <div class="side-block">
-        <div class="side-title">模型库</div>
+        <div class="side-title" data-i18n="side.models">模型库</div>
         <div class="strategy-list" id="strategyList"></div>
       </div>
 
       <div class="side-block side-account">
-        <div class="side-title">账户</div>
-        <div id="accountBox" class="account-box"><span class="muted">加载中…</span></div>
+        <div class="side-title" data-i18n="side.account">账户</div>
+        <div id="accountBox" class="account-box"><span class="muted" data-i18n="common.loading">加载中…</span></div>
       </div>
     </aside>
 
@@ -138,20 +143,20 @@
           <div class="panel-head">
             <div class="ph-left">
               <h2 id="chartTitle">—</h2>
-              <span class="tag" id="chartTag">日线</span>
+              <span class="tag" id="chartTag" data-i18n="bar.label.day">日线</span>
             </div>
             <div class="ph-right">
               <div class="switch-group" id="barToggle">
-                <button class="sw active" data-bar="day">日</button>
-                <button class="sw" data-bar="week">周</button>
-                <button class="sw" data-bar="hour">1时</button>
-                <button class="sw" data-bar="min15">15分</button>
+                <button class="sw active" data-bar="day" data-i18n="bar.day">日</button>
+                <button class="sw" data-bar="week" data-i18n="bar.week">周</button>
+                <button class="sw" data-bar="hour" data-i18n="bar.hour">1时</button>
+                <button class="sw" data-bar="min15" data-i18n="bar.min15">15分</button>
               </div>
               <div class="switch-group" id="overlayToggle">
                 <button class="sw active" data-ov="ma">MA</button>
-                <button class="sw" data-ov="bb">布林</button>
-                <button class="sw active" data-ov="sig">信号</button>
-                <button class="sw active" data-ov="vol">量</button>
+                <button class="sw" data-ov="bb" data-i18n="ov.bb">布林</button>
+                <button class="sw active" data-ov="sig" data-i18n="ov.sig">信号</button>
+                <button class="sw active" data-ov="vol" data-i18n="ov.vol">量</button>
               </div>
             </div>
           </div>
@@ -162,7 +167,7 @@
         <div class="grid-3" id="metricCards"></div>
 
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>策略回测指标</h2></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.btMetrics">策略回测指标</h2></div>
             <div class="ph-right"><span class="muted" id="btParams"></span></div>
           </div>
           <div id="metricGrid" class="metric-grid"></div>
@@ -173,11 +178,11 @@
       <div class="view" id="view-equity">
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>净值曲线对比</h2>
+            <div class="ph-left"><h2 data-i18n="panel.equity">净值曲线对比</h2>
               <span class="tag" id="eqTag"></span></div>
             <div class="ph-right">
               <select id="eqSymbolSel" class="sel"></select>
-              <button class="btn" id="eqRefresh">刷新</button>
+              <button class="btn" id="eqRefresh" data-i18n="common.refresh">刷新</button>
             </div>
           </div>
           <div id="equityChart" class="chart equity-chart"></div>
@@ -189,18 +194,18 @@
       <div class="view" id="view-portfolio">
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>组合回测</h2>
+            <div class="ph-left"><h2 data-i18n="panel.portfolio">组合回测</h2>
               <span class="tag" id="pfTag">—</span></div>
             <div class="ph-right">
               <select id="pfStrategySel" class="sel"></select>
               <select id="pfSchemeSel" class="sel">
-                <option value="equal">等权</option>
-                <option value="signal">信号加权</option>
-                <option value="vol_inverse">波动率倒数</option>
-                <option value="risk_parity">风险平价</option>
-                <option value="vol_target">波动率目标</option>
+                <option value="equal" data-i18n="scheme.equal">等权</option>
+                <option value="signal" data-i18n="scheme.signal">信号加权</option>
+                <option value="vol_inverse" data-i18n="scheme.vol_inverse">波动率倒数</option>
+                <option value="risk_parity" data-i18n="scheme.risk_parity">风险平价</option>
+                <option value="vol_target" data-i18n="scheme.vol_target">波动率目标</option>
               </select>
-              <button class="btn" id="pfRefresh">刷新</button>
+              <button class="btn" id="pfRefresh" data-i18n="common.refresh">刷新</button>
             </div>
           </div>
           <div class="grid-3" id="pfCards" style="padding:10px 10px 0"></div>
@@ -208,17 +213,17 @@
           <div class="legend" id="pfLegend"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>标的权重</h2>
-            <span class="tag">逐日权重堆叠 · 点击图例可隐藏</span></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.weights">标的权重</h2>
+            <span class="tag" data-i18n="weights.tag">逐日权重堆叠 · 点击图例可隐藏</span></div>
             <div class="ph-right"><span class="muted" id="pfWeightNow"></span></div>
           </div>
           <div id="pfWeightChart" class="chart" style="height:230px"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>权重方案对比</h2>
-            <span class="tag">enhanced 实验结果</span></div></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.schemes">权重方案对比</h2>
+            <span class="tag" data-i18n="schemes.tag">enhanced 实验结果</span></div></div>
           <div class="table-wrap"><table class="tbl" id="pfSchemeTable"></table></div>
-          <p class="hint">实测结论：6 个策略里等权全部最优；波动率倒数/风险平价/波动率目标
+          <p class="hint" data-i18n="schemes.hint">实测结论：6 个策略里等权全部最优；波动率倒数/风险平价/波动率目标
             结果一致且更差 —— 都在系统性压低仓位。</p>
         </div>
       </div>
@@ -227,14 +232,14 @@
       <div class="view" id="view-rank">
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>模型横向排名</h2>
-              <span class="tag">跨 8 标的平均</span></div>
+            <div class="ph-left"><h2 data-i18n="panel.rank">模型横向排名</h2>
+              <span class="tag" data-i18n="rank.tag">跨 8 标的平均</span></div>
             <div class="ph-right">
               <select id="rankMetric" class="sel">
-                <option value="夏普比率">按夏普</option>
-                <option value="卡玛比率">按卡玛</option>
-                <option value="年化收益率">按年化</option>
-                <option value="最大回撤">按回撤</option>
+                <option value="夏普比率" data-i18n="rank.by.sharpe">按夏普</option>
+                <option value="卡玛比率" data-i18n="rank.by.calmar">按卡玛</option>
+                <option value="年化收益率" data-i18n="rank.by.cagr">按年化</option>
+                <option value="最大回撤" data-i18n="rank.by.mdd">按回撤</option>
               </select>
             </div>
           </div>
@@ -245,17 +250,17 @@
       <!-- 视图：风控 / 显著性 -->
       <div class="view" id="view-risk">
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>统计显著性体检</h2>
-            <span class="tag">组合层</span></div></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.sig">统计显著性体检</h2>
+            <span class="tag" data-i18n="sig.tag">组合层</span></div></div>
           <div class="table-wrap"><table class="tbl" id="sigTable"></table></div>
-          <p class="hint">PSR = 真实夏普 &gt; 0 的概率（&gt;0.95 才算显著）；
+          <p class="hint" data-i18n="sig.hint">PSR = 真实夏普 &gt; 0 的概率（&gt;0.95 才算显著）；
             DSR 扣除「试了很多次」的选择偏差；SR0 是纯靠试次数能刷出的期望虚高线。</p>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>风控 A/B：夏普变化</h2>
-            <span class="tag">相对无风控</span></div></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.riskab">风控 A/B：夏普变化</h2>
+            <span class="tag" data-i18n="riskab.tag">相对无风控</span></div></div>
           <div class="table-wrap"><table class="tbl" id="riskTable"></table></div>
-          <p class="hint">正值 = 风控有效。结论：风控只对高暴露趋势策略有效，
+          <p class="hint" data-i18n="riskab.hint">正值 = 风控有效。结论：风控只对高暴露趋势策略有效，
             对本来就低暴露的择时策略是负优化。</p>
         </div>
       </div>
@@ -263,15 +268,15 @@
       <!-- 视图：监控 -->
       <div class="view" id="view-watch">
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>今日信号扫描</h2>
-            <span class="tag" id="watchTag">只读</span></div>
-            <div class="ph-right"><button class="btn" id="watchRefresh">重新扫描</button></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.watch">今日信号扫描</h2>
+            <span class="tag" id="watchTag" data-i18n="watch.tag">只读</span></div>
+            <div class="ph-right"><button class="btn" id="watchRefresh" data-i18n="watch.rescan">重新扫描</button></div>
           </div>
           <div class="table-wrap"><table class="tbl" id="watchTable"></table></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>模拟盘状态</h2></div></div>
-          <div id="paperBox" class="account-box"><span class="muted">加载中…</span></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.paper">模拟盘状态</h2></div></div>
+          <div id="paperBox" class="account-box"><span class="muted" data-i18n="common.loading">加载中…</span></div>
         </div>
       </div>
 
@@ -279,15 +284,15 @@
       <div class="view" id="view-account">
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>账户总览</h2>
+            <div class="ph-left"><h2 data-i18n="panel.acct">账户总览</h2>
               <span class="tag" id="acctTag">—</span></div>
             <div class="ph-right">
-              <span class="live-badge" id="acctConn"><i></i><span>未连接</span></span>
+              <span class="live-badge" id="acctConn"><i></i><span data-i18n="acct.conn.off">未连接</span></span>
               <label class="chk-lab">
-                <input type="checkbox" id="acctAuto" checked><span>自动刷新</span>
+                <input type="checkbox" id="acctAuto" checked><span data-i18n="acct.auto">自动刷新</span>
               </label>
               <span class="muted" id="acctNext">—</span>
-              <button class="btn" id="acctRefresh">刷新</button>
+              <button class="btn" id="acctRefresh" data-i18n="common.refresh">刷新</button>
             </div>
           </div>
           <div class="grid-3" id="acctCards"></div>
@@ -296,29 +301,29 @@
 
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>持仓明细</h2>
-            <span class="tag">市值按最新价 · 盈亏按成本价 · 标的原币种</span></div>
+            <div class="ph-left"><h2 data-i18n="panel.positions">持仓明细</h2>
+            <span class="tag" data-i18n="positions.tag">市值按最新价 · 盈亏按成本价 · 标的原币种</span></div>
             <div class="ph-right"><span class="muted" id="acctPosSum"></span></div>
           </div>
           <div class="table-wrap"><table class="tbl" id="acctPosTable"></table></div>
-          <p class="hint">账户基准币种为 HKD，美股标的以 USD 计价，
+          <p class="hint" data-i18n="positions.hint">账户基准币种为 HKD，美股标的以 USD 计价，
             逐行数值保留标的原币种；账户层面汇总已按汇率折算。</p>
         </div>
 
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>账户净值曲线</h2>
+            <div class="ph-left"><h2 data-i18n="panel.acctCurve">账户净值曲线</h2>
             <span class="tag" id="acctCurveTag">来自 account_snapshots</span></div>
           </div>
           <div id="acctCurve" class="chart" style="height:300px"></div>
-          <p class="hint">看板每被访问一次会节流写入一条快照（最快 60s 一条），
+          <p class="hint" data-i18n="acctCurve.hint">看板每被访问一次会节流写入一条快照（最快 60s 一条），
             曲线因此随使用自然生长；也可以在后台常驻采样脚本让它更密。</p>
         </div>
 
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>最近委托</h2>
-            <span class="tag">orders 表</span></div>
+            <div class="ph-left"><h2 data-i18n="panel.orders">最近委托</h2>
+            <span class="tag" data-i18n="orders.tag">orders 表</span></div>
           </div>
           <div class="table-wrap"><table class="tbl" id="acctOrderTable"></table></div>
         </div>
@@ -328,11 +333,11 @@
       <div class="view" id="view-db">
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>数据库总览</h2>
+            <div class="ph-left"><h2 data-i18n="panel.dbOverview">数据库总览</h2>
               <span class="tag" id="dbTag">—</span></div>
             <div class="ph-right">
               <span class="muted" id="dbPath"></span>
-              <button class="btn" id="dbRefresh">刷新</button>
+              <button class="btn" id="dbRefresh" data-i18n="common.refresh">刷新</button>
             </div>
           </div>
           <div class="grid-3" id="dbSummary"></div>
@@ -341,22 +346,22 @@
 
         <div class="panel">
           <div class="panel-head">
-            <div class="ph-left"><h2>SQL 查询</h2>
-              <span class="tag">只读 · SELECT / WITH</span></div>
+            <div class="ph-left"><h2 data-i18n="panel.sql">SQL 查询</h2>
+              <span class="tag" data-i18n="sql.tag">只读 · SELECT / WITH</span></div>
             <div class="ph-right">
               <select id="dbExampleSel" class="sel"></select>
-              <button class="btn" id="dbRun">执行 ⌘↵</button>
+              <button class="btn" id="dbRun" data-i18n="sql.run">执行 ⌘↵</button>
             </div>
           </div>
           <textarea id="dbSql" class="sql-editor" spellcheck="false"
-            placeholder="SELECT * FROM bars LIMIT 20"></textarea>
+            placeholder="SELECT * FROM bars LIMIT 20" data-i18n-ph="sql.ph"></textarea>
           <div id="dbMsg" class="hint"></div>
           <div class="table-wrap"><table class="tbl" id="dbResult"></table></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><div class="ph-left"><h2>数据模型（ER）</h2>
-            <span class="tag">14 张表 · 5 层</span></div></div>
+          <div class="panel-head"><div class="ph-left"><h2 data-i18n="panel.er">数据模型（ER）</h2>
+            <span class="tag" data-i18n="er.tag">14 张表 · 5 层</span></div></div>
           <div id="dbEr" class="er-box"></div>
         </div>
       </div>
@@ -369,6 +374,7 @@
 </div>
 
 <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-<script src="/static/js/app.js?v=20261020c"></script>
+<script src="/static/js/i18n.js?v=20261020e"></script>
+<script src="/static/js/app.js?v=20261020e"></script>
 </body>
 </html>

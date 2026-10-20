@@ -268,6 +268,21 @@ table.tbl tbody tr{cursor:pointer}
 .clock-state.open{background:rgba(242,54,69,.14); color:var(--up)}
 .clock-state.closed{background:rgba(120,123,134,.14); color:var(--muted)}
 
+/* ---------- 语言切换 ---------- */
+.lang-sw{
+  display:flex; align-items:center; gap:2px; padding:2px;
+  background:var(--bg2); border:1px solid var(--border); border-radius:20px;
+}
+.lang-btn{
+  border:0; background:transparent; color:var(--muted); cursor:pointer;
+  font-size:11px; font-weight:600; letter-spacing:.3px; font-family:inherit;
+  padding:3px 9px; border-radius:14px; line-height:1.5;
+  transition:background .18s var(--ease), color .18s var(--ease);
+}
+.lang-btn:hover{color:var(--text)}
+.lang-btn.on{background:var(--accent); color:#fff}
+.lang-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
 /* ---------- 图例开关 ---------- */
 .lg-item{cursor:pointer; transition:opacity .18s var(--ease); user-select:none}
 .lg-item:hover{opacity:.8}

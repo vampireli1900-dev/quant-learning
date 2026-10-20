@@ -28,7 +28,9 @@ const BAR_CFG = {
   hour:  { dur: '2 Y' },
   min15: { dur: '1 M' },
 };
-const BAR_LABEL = { day: '日线', week: '周线', hour: '1小时', min15: '15分钟' };
+const BAR_LABEL_KEY = { day: 'bar.label.day', week: 'bar.label.week',
+  hour: 'bar.label.hour', min15: 'bar.label.min15' };
+const barLabel = (b) => t(BAR_LABEL_KEY[b] || 'bar.label.day');
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -59,9 +61,9 @@ function loading(on) {
 }
 let toastTimer = null;
 function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  const el = $('#toast'); el.textContent = msg; el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
 async function api(path, quiet = false) {
@@ -72,7 +74,7 @@ async function api(path, quiet = false) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch (e) {
-    if (!quiet) toast('请求失败：' + e.message);
+    if (!quiet) toast(t('toast.reqFail') + e.message);
     throw e;
   } finally { if (!quiet) loading(false); }
 }
@@ -91,7 +93,35 @@ function countUp(el, target, d = 2, suffix = '') {
 }
 
 /* ---------------- 初始化 ---------------- */
+function bindLang() {
+  const box = $('#langSw');
+  if (!box) return;
+  box.querySelectorAll('.lang-btn').forEach(b => {
+    b.classList.toggle('on', b.dataset.lang === QP_LANG);
+    b.onclick = () => setLang(b.dataset.lang);
+  });
+}
+
+/* 语言切换会整页 reload，这里把用户当时看的视图/标的恢复回去 */
+function restoreSession() {
+  let view = 'chart', sym = null;
+  try {
+    view = sessionStorage.getItem('qp_view') || 'chart';
+    sym = sessionStorage.getItem('qp_symbol');
+    sessionStorage.removeItem('qp_view');
+    sessionStorage.removeItem('qp_symbol');
+  } catch (e) { return; }
+  if (sym && sym !== state.symbol) setSymbol(sym);
+  if (view && view !== 'chart') {
+    const btn = $(`.nav-item[data-view="${view}"]`);
+    if (btn) btn.click();
+  }
+}
+
 async function boot() {
+  applyI18n();
+  bindLang();
+
   const meta = await api('/api/bootstrap');
   state.meta = meta;
 
@@ -107,7 +137,7 @@ async function boot() {
   // 策略下拉
   const sel = $('#strategySel');
   sel.innerHTML = meta.strategy_names.map(n =>
-    `<option value="${n}"${n === state.strategy ? ' selected' : ''}>${n}</option>`).join('');
+    `<option value="${n}"${n === state.strategy ? ' selected' : ''}>${stratName(n)}</option>`).join('');
   sel.onchange = () => { state.strategy = sel.value; loadSignals(); syncStrategyList(); };
   $('#durationSel').onchange = (e) => {
     state.duration = e.target.value;
@@ -121,7 +151,7 @@ async function boot() {
   const list = $('#strategyList');
   list.innerHTML = meta.strategies.map(s =>
     `<div class="strat-item${s['策略'] === state.strategy ? ' active' : ''}" data-name="${s['策略']}">
-       <span>${s['策略']}</span><span class="strat-cat">${s['类别']}</span></div>`).join('');
+       <span>${stratName(s['策略'])}</span><span class="strat-cat">${stratName(s['类别'])}</span></div>`).join('');
   list.querySelectorAll('.strat-item').forEach(it => it.onclick = () => {
     state.strategy = it.dataset.name; sel.value = it.dataset.name;
     loadSignals(); syncStrategyList();
@@ -136,7 +166,7 @@ async function boot() {
   // 组合页
   const pfs = $('#pfStrategySel');
   pfs.innerHTML = meta.strategy_names.map(n =>
-    `<option value="${n}"${n === 'ADX趋势过滤' ? ' selected' : ''}>${n}</option>`).join('');
+    `<option value="${n}"${n === 'ADX趋势过滤' ? ' selected' : ''}>${stratName(n)}</option>`).join('');
   pfs.onchange = () => loadPortfolio();
   $('#pfSchemeSel').onchange = () => loadPortfolio();
   $('#pfRefresh').onclick = () => loadPortfolio();
@@ -147,6 +177,7 @@ async function boot() {
   loadDb();
   loadAccountBoard(true);
   acctSetAuto(true);
+  restoreSession();
 
   // 市场时钟 + 自动刷新
   tickClock(); setInterval(tickClock, 1000);
@@ -205,7 +236,7 @@ function setBar(bar) {
   // 分钟/小时线没有对齐的回测信号，自动关掉信号标记
   if (bar !== 'day') { state.overlays.sig = false; $('#overlayToggle .sw[data-ov="sig"]').classList.remove('active'); }
   reloadAll();
-  toast(`已切换到${BAR_LABEL[bar]}` + (bar !== 'day' ? '（信号回测仅在日线）' : ''));
+  toast(t('toast.bar', { label: barLabel(bar) }) + (bar !== 'day' ? t('toast.barNote') : ''));
 }
 
 async function reloadAll() {
@@ -221,7 +252,7 @@ async function loadOHLC() {
     `&duration=${encodeURIComponent(dur)}&bar=${state.bar}`);
   state.ohlc = d;
   $('#chartTitle').textContent = `${d.symbol} · ${state.strategy}`;
-  $('#chartTag').textContent = `${BAR_LABEL[d.bar] || '日线'} ${d.count} 根 · ${d.start} ~ ${d.end}`;
+  $('#chartTag').textContent = t('chart.tag', { label: barLabel(d.bar), n: d.count, start: d.start, end: d.end });
 
   const chg = d.prev_close ? (d.last / d.prev_close - 1) : 0;
   $('#ticker').innerHTML =
@@ -396,20 +427,21 @@ async function loadSignals() {
   }
 
   const m = d.metrics || {}, b = d.benchmark_metrics || {};
+  const bench = t('card.bench');
   const cards = [
-    { k: '年化收益率', v: m['年化收益率'], d: 2, s: '%', sub: `基准 ${pct(b['年化收益率'], 1)}`, c: cls(m['年化收益率']) },
-    { k: '夏普比率', v: m['夏普比率'], d: 2, s: '', sub: `基准 ${fmt(b['夏普比率'])}`, c: cls(m['夏普比率']) },
-    { k: '最大回撤', v: m['最大回撤'], d: 2, s: '%', sub: `基准 ${pct(b['最大回撤'], 1)}`, c: cls(m['最大回撤']) },
-    { k: '卡玛比率', v: m['卡玛比率'], d: 2, s: '', sub: '年化收益 / 最大回撤', c: cls(m['卡玛比率']) },
+    { key: '年化收益率', v: m['年化收益率'], d: 2, s: '%', sub: `${bench} ${pct(b['年化收益率'], 1)}`, c: cls(m['年化收益率']) },
+    { key: '夏普比率', v: m['夏普比率'], d: 2, s: '', sub: `${bench} ${fmt(b['夏普比率'])}`, c: cls(m['夏普比率']) },
+    { key: '最大回撤', v: m['最大回撤'], d: 2, s: '%', sub: `${bench} ${pct(b['最大回撤'], 1)}`, c: cls(m['最大回撤']) },
+    { key: '卡玛比率', v: m['卡玛比率'], d: 2, s: '', sub: t('card.calmar.sub'), c: cls(m['卡玛比率']) },
   ];
   const wrap = $('#metricCards');
   wrap.innerHTML = cards.map((c, i) =>
-    `<div class="card"><div class="k">${c.k}</div>
+    `<div class="card"><div class="k">${label(c.key)}</div>
       <div class="v ${c.c}" data-num="${i}">0</div>
       <div class="s">${c.sub}</div></div>`).join('');
   cards.forEach((c, i) => {
     const el = wrap.querySelector(`[data-num="${i}"]`);
-    const raw = (c.k.includes('率') && c.k !== '夏普比率' && c.k !== '卡玛比率') ? (c.v || 0) * 100 : (c.v || 0);
+    const raw = (c.s === '%') ? (c.v || 0) * 100 : (c.v || 0);
     countUp(el, raw, c.d, c.s);
   });
 
@@ -424,18 +456,18 @@ async function loadSignals() {
         k.includes('回撤') || k.includes('胜率') || k.includes('VaR') || k.includes('CVaR');
       const val = isPct ? pct(m[k], 2) : (['交易次数', '回撤持续期', '平均持仓天数', '样本数'].includes(k)
         ? String(Math.round(m[k])) : fmt(m[k], 3));
-      return `<div class="metric"><div class="k">${k}</div><div class="v">${val}</div></div>`;
+      return `<div class="metric"><div class="k">${label(k)}</div><div class="v">${val}</div></div>`;
     }).join('') +
     Object.entries(extra).filter(([, v]) => v !== null && v !== undefined && !Number.isNaN(v))
-      .map(([k, v]) => `<div class="metric"><div class="k">${k}</div>
+      .map(([k, v]) => `<div class="metric"><div class="k">${label(k)}</div>
         <div class="v ${Number(v) > 0.95 ? 'up' : ''}">${fmt(v, 3)}</div></div>`).join('');
 }
 
 /* ---------------- 净值曲线 ---------------- */
 async function loadEquityCurves(symbol) {
   const d = await api(`/api/equity_curves?symbol=${encodeURIComponent(symbol || state.symbol)}&top_n=8`);
-  if (!d.series || !d.series.length) { toast('该标的暂无净值曲线'); return; }
-  $('#eqTag').textContent = `${d.symbol} · 前 ${d.series.length} 个模型 · 起点归一 100`;
+  if (!d.series || !d.series.length) { toast(t('eq.empty')); return; }
+  $('#eqTag').textContent = t('eq.tag', { symbol: d.symbol, n: d.series.length });
 
   const el = $('#equityChart');
   if (state.charts.equity) { state.charts.equity.remove(); state.charts.equity = null; }
@@ -478,19 +510,19 @@ async function loadPortfolio() {
   const d = await api(`/api/portfolio_equity?strategy=${encodeURIComponent(strat)}` +
     `&scheme=${encodeURIComponent(scheme)}`);
   state.pfLoaded = true;
-  $('#pfTag').textContent = `${d.strategy} · ${schemeLabel(scheme)} · ${d.symbols.length} 标的`;
+  $('#pfTag').textContent = t('pf.tag', { strategy: stratName(d.strategy), scheme: schemeLabel(scheme), n: d.symbols.length });
 
   // 指标卡
   const m = d.metrics || {};
   const cards = [
-    { k: '组合年化', v: m['年化收益率'], s: '%', sub: '基准=等权买入持有' },
-    { k: '组合夏普', v: m['夏普比率'], s: '', sub: '单标的平均约 0.55' },
-    { k: '最大回撤', v: m['最大回撤'], s: '%', sub: '组合分散化后显著收窄' },
-    { k: '卡玛比率', v: m['卡玛比率'], s: '', sub: '年化 / 回撤' },
+    { k: 'pf.card.cagr', v: m['年化收益率'], s: '%', sub: t('pf.card.cagr.sub') },
+    { k: 'pf.card.sharpe', v: m['夏普比率'], s: '', sub: t('pf.card.sharpe.sub') },
+    { k: 'pf.card.mdd', v: m['最大回撤'], s: '%', sub: t('pf.card.mdd.sub') },
+    { k: 'pf.card.calmar', v: m['卡玛比率'], s: '', sub: t('pf.card.calmar.sub') },
   ];
   const wrap = $('#pfCards');
   wrap.innerHTML = cards.map((c, i) =>
-    `<div class="card"><div class="k">${c.k}</div>
+    `<div class="card"><div class="k">${t(c.k)}</div>
       <div class="v ${cls(c.v)}" data-pf="${i}">0</div>
       <div class="s">${c.sub}</div></div>`).join('');
   cards.forEach((c, i) => {
@@ -507,14 +539,14 @@ async function loadPortfolio() {
     timeScale: { ...baseChartOpts().timeScale, timeVisible: false },
   });
   state.charts.pfEq = c;
-  c.addLineSeries({ color: TV.accent, lineWidth: 2, title: '组合',
+  c.addLineSeries({ color: TV.accent, lineWidth: 2, title: t('pf.series'),
     priceLineVisible: false, lastValueVisible: true }).setData(cleanSeries(d.equity));
-  c.addLineSeries({ color: '#787b86', lineWidth: 1, lineStyle: 2, title: '基准',
+  c.addLineSeries({ color: '#787b86', lineWidth: 1, lineStyle: 2, title: t('pf.benchSeries'),
     priceLineVisible: false, lastValueVisible: false }).setData(cleanSeries(d.benchmark));
   c.timeScale().fitContent();
   $('#pfLegend').innerHTML =
-    `<span><i style="background:${TV.accent}"></i>${d.strategy}（${schemeLabel(scheme)}）</span>
-     <span><i style="background:#787b86"></i>等权买入持有基准</span>`;
+    `<span><i style="background:${TV.accent}"></i>${stratName(d.strategy)}（${schemeLabel(scheme)}）</span>
+     <span><i style="background:#787b86"></i>${t('pf.benchmark')}</span>`;
 
   // 权重：策略仓位是 0/1 开关型，画折线等于画一堆上下跳的竖线。
   // 改成堆叠面积：按当前权重从大到小依次累加，后画的层覆盖前一层上沿，
@@ -566,9 +598,9 @@ async function loadPortfolio() {
     else wc.timeScale().fitContent();
   }
   drawStack();
-  $('#pfWeightNow').textContent = '当前权重：' +
+  $('#pfWeightNow').textContent = t('pf.weightNow') +
     ((d.weights || []).filter(w => w.current > 0.005)
-      .map(w => `${w.name} ${(w.current * 100).toFixed(0)}%`).join(' · ') || '空仓');
+      .map(w => `${stratName(w.name)} ${(w.current * 100).toFixed(0)}%`).join(' · ') || t('pf.flat'));
   // 权重图例（点击显隐，触发重绘）
   document.getElementById('pfWeightLegend')?.remove();
   const wbox = document.createElement('div');
@@ -576,7 +608,7 @@ async function loadPortfolio() {
   wbox.id = 'pfWeightLegend';
   wbox.style.padding = '6px 14px';
   wbox.innerHTML = (d.weights || []).map(w =>
-    `<span class="lg-item" data-n="${w.name}"><i style="background:${w.color}"></i>${w.name}</span>`).join('');
+    `<span class="lg-item" data-n="${w.name}"><i style="background:${w.color}"></i>${stratName(w.name)}</span>`).join('');
   $('#pfWeightChart').after(wbox);
   wbox.querySelectorAll('.lg-item').forEach(item => item.onclick = () => {
     const n = item.dataset.n;
@@ -590,8 +622,8 @@ async function loadPortfolio() {
 }
 
 function schemeLabel(s) {
-  return { equal: '等权', signal: '信号加权', vol_inverse: '波动率倒数',
-    risk_parity: '风险平价', vol_target: '波动率目标' }[s] || s;
+  const k = 'scheme.' + s, v = t(k);
+  return v === k ? s : v;
 }
 
 let schemeData = null;
@@ -600,7 +632,7 @@ async function loadSchemeTable(strat, curScheme) {
   const rows = schemeData.rows.filter(r => r['策略'] === strat);
   const cols = ['权重方案', '年化收益率', '夏普比率', '最大回撤', '卡玛比率', '年化换手', '平均标的数量'];
   $('#pfSchemeTable').innerHTML =
-    `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+    `<thead><tr>${cols.map(c => `<th>${label(c)}</th>`).join('')}</tr></thead><tbody>` +
     rows.map(r => `<tr data-scheme="${r['权重方案']}" class="${r['权重方案'] === curScheme ? 'hl' : ''}">
       <td>${schemeLabel(r['权重方案'])}</td>
       <td class="${cls(r['年化收益率'])}">${pct(r['年化收益率'], 1)}</td>
@@ -628,7 +660,7 @@ function tickClock() {
   const mins = h * 60 + m;
   const open = !['Sat', 'Sun'].includes(get('weekday')) && mins >= 570 && mins < 960;
   const st = $('#clockState');
-  st.textContent = open ? '开市' : '休市';
+  st.textContent = open ? t('top.clock.open') : t('top.clock.closed');
   st.className = 'clock-state ' + (open ? 'open' : 'closed');
 }
 
@@ -647,9 +679,9 @@ async function loadRanking() {
     '交易次数', '持仓占比', '跑赢基准占比'];
   const maxAbs = Math.max(...rows.map(r => Math.abs(r[metric] || 0))) || 1;
   $('#rankTable').innerHTML =
-    `<thead><tr>${cols.map(c => `<th data-c="${c}">${c}</th>`).join('')}</tr></thead><tbody>` +
+    `<thead><tr>${cols.map(c => `<th data-c="${c}">${label(c)}</th>`).join('')}</tr></thead><tbody>` +
     rows.map(r => `<tr data-sym="${r['策略']}">
-      <td>${r['策略']}</td>
+      <td>${stratName(r['策略'])}</td>
       <td>${pct(r['年化收益率'], 1)}</td>
       <td class="${cls(r['夏普比率'])}">${fmt(r['夏普比率'])}</td>
       <td>${fmt(r['卡玛比率'])}</td>
@@ -665,7 +697,7 @@ async function loadRanking() {
     $('#strategySel').value = state.strategy; syncStrategyList();
     $$('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.view === 'chart'));
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-chart'));
-    loadSignals(); toast('已切换到 ' + state.strategy);
+    loadSignals(); toast(t('toast.switched', { name: stratName(state.strategy) }));
   });
 }
 
@@ -676,9 +708,9 @@ async function loadRiskViews() {
     const cols = ['策略', '夏普比率', 'PSR(>0)', 'DSR', '夏普95%下界', '夏普95%上界',
       'SR0(期望虚高线)', '样本数', '最小样本量(证明夏普>0)'];
     $('#sigTable').innerHTML =
-      `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+      `<thead><tr>${cols.map(c => `<th>${label(c)}</th>`).join('')}</tr></thead><tbody>` +
       sig.rows.map(r => `<tr>
-        <td>${r['策略']}</td>
+        <td>${stratName(r['策略'])}</td>
         <td class="${cls(r['夏普比率'])}">${fmt(r['夏普比率'])}</td>
         <td class="${Number(r['PSR(>0)']) > 0.95 ? 'up' : ''}">${fmt(r['PSR(>0)'], 3)}</td>
         <td>${fmt(r['DSR'], 3)}</td>
@@ -698,8 +730,8 @@ async function loadRiskViews() {
     });
     const schemes = Array.from(new Set(ab.rows.map(r => r['风控方案']))).filter(s => s !== '无风控');
     $('#riskTable').innerHTML =
-      `<thead><tr><th>策略</th>${schemes.map(s => `<th>${s}</th>`).join('')}</tr></thead><tbody>` +
-      Object.entries(piv).map(([k, v]) => `<tr><td>${k}</td>` +
+      `<thead><tr><th>${label('策略')}</th>${schemes.map(s => `<th>${stratName(s)}</th>`).join('')}</tr></thead><tbody>` +
+      Object.entries(piv).map(([k, v]) => `<tr><td>${stratName(k)}</td>` +
         schemes.map(s => {
           const x = v[s];
           return `<td class="${cls(x)}">${x === null || x === undefined ? '—' : (x >= 0 ? '+' : '') + fmt(x)}</td>`;
@@ -710,11 +742,11 @@ async function loadRiskViews() {
 /* ---------------- 信号监控 ---------------- */
 async function loadWatchlist(force) {
   const d = await api('/api/watchlist' + (force ? '?_=' + Date.now() : ''));
-  if (!d.rows || !d.rows.length) { $('#watchTable').innerHTML = '<tbody><tr><td>暂无数据</td></tr></tbody>'; return; }
+  if (!d.rows || !d.rows.length) { $('#watchTable').innerHTML = `<tbody><tr><td>${t('watch.empty')}</td></tr></tbody>`; return; }
   const cols = d.columns.filter(c => !c.endsWith('_变化'));
-  $('#watchTag').textContent = `${d.rows.length} 个标的 · 4 模型投票`;
+  $('#watchTag').textContent = t('watch.summary', { n: d.rows.length });
   $('#watchTable').innerHTML =
-    `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+    `<thead><tr>${cols.map(c => `<th>${label(c)}</th>`).join('')}</tr></thead><tbody>` +
     d.rows.map(r => `<tr>${cols.map(c => {
       const v = r[c];
       const isPx = c === '最新收盘';
@@ -737,26 +769,26 @@ async function loadWatchlist(force) {
 async function loadAccount() {
   const d = await api('/api/account');
   const box = $('#accountBox');
-  if (!d.ok) { box.innerHTML = `<span class="muted">未连接：${d.error || '未知'}</span>`; return; }
+  if (!d.ok) { box.innerHTML = `<span class="muted">${t('acct.conn.off')}: ${d.error || '—'}</span>`; return; }
   const a = d.account || {};
   const nv = parseFloat(a.NetLiquidation || a.TotalCashValue || 0);
   box.innerHTML =
-    `<div>账户 <b>${(a.accounts || '—').split(',')[0]}</b></div>
-     <div>净值 <b>${nv ? nv.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
-     <div>可用 <b>${a.AvailableFunds ? Number(a.AvailableFunds).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
-     <div>持仓 <b>${(d.positions || []).length}</b> 个</div>`;
+    `<div>${label('账户')} <b>${(a.accounts || '—').split(',')[0]}</b></div>
+     <div>${label('净值')} <b>${nv ? nv.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
+     <div>${label('可用资金')} <b>${a.AvailableFunds ? Number(a.AvailableFunds).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
+     <div>${label('持仓数')} <b>${(d.positions || []).length}</b></div>`;
   $('#liveTxt').textContent = (a.accounts || '').startsWith('DU') ? 'PAPER' : 'LIVE';
 }
 
 async function loadPaper() {
   const d = await api('/api/paper/state');
   const box = $('#paperBox');
-  if (!d.ok || !d.states.length) { box.innerHTML = '<span class="muted">尚无模拟盘运行记录</span>'; return; }
+  if (!d.ok || !d.states.length) { box.innerHTML = `<span class="muted">${t('paper.empty')}</span>`; return; }
   box.innerHTML = d.states.map(s =>
     `<div style="margin-bottom:8px">
-      <div><b>${s.策略 || '—'}</b> · ${s.时间 || ''} · ${s.dry_run ? 'DRY-RUN' : 'LIVE'}</div>
-      <div class="muted">风控 ${s.风控 || '无'} · 订单 ${s.订单数 ?? 0} 笔 · 标的 ${s.标的数 ?? 0}</div>
-      <div class="muted">权重 ${JSON.stringify(s.目标权重 || {})}</div>
+      <div><b>${stratName(s.策略) || '—'}</b> · ${s.时间 || ''} · ${s.dry_run ? 'DRY-RUN' : 'LIVE'}</div>
+      <div class="muted">${t('paper.risk')} ${stratName(s.风控) || t('paper.none')} · ${t('paper.orders')} ${s.订单数 ?? 0} · ${t('paper.symbols')} ${s.标的数 ?? 0}</div>
+      <div class="muted">${t('paper.weights')} ${JSON.stringify(s.目标权重 || {})}</div>
     </div>`).join('');
 }
 
@@ -764,43 +796,12 @@ async function loadPaper() {
    数据库视图（SQL）
    ========================================================================== */
 const DB_GROUPS = [
-  {
-    title: '行情数据 · API 抓取',
-    tables: [
-      ['assets', '标的主数据，代码唯一'],
-      ['bars', 'OHLCV 行情，按(标的,周期,时间)唯一'],
-      ['ingest_log', '每次调 API 的抓取日志'],
-    ],
-  },
-  {
-    title: '训练集 · 特征工程',
-    tables: [
-      ['feature_sets', '训练集元信息（标的/时间/特征清单）'],
-      ['features', '特征明细长表（样本×特征→值）'],
-    ],
-  },
-  {
-    title: '实验与回测',
-    tables: [
-      ['experiments', '一次实验（策略×标的×假设）'],
-      ['backtest_runs', '一次回测 = (实验,策略,标的)'],
-      ['backtest_metrics', '绩效指标（关键列+全量JSON）'],
-      ['equity_points', '净值曲线采样点'],
-      ['trades', '逐笔交易（进→出）'],
-    ],
-  },
-  {
-    title: '模型注册表',
-    tables: [['model_registry', '通过显著性检验、入选实盘的模型']],
-  },
-  {
-    title: '实盘运营',
-    tables: [
-      ['orders', '委托记录（含 dry-run 计划）'],
-      ['position_snapshots', '持仓快照'],
-      ['account_snapshots', '账户净值快照'],
-    ],
-  },
+  { key: 'db.group.market', tables: ['assets', 'bars', 'ingest_log'] },
+  { key: 'db.group.feature', tables: ['feature_sets', 'features'] },
+  { key: 'db.group.exp', tables: ['experiments', 'backtest_runs', 'backtest_metrics',
+    'equity_points', 'trades'] },
+  { key: 'db.group.model', tables: ['model_registry'] },
+  { key: 'db.group.live', tables: ['orders', 'position_snapshots', 'account_snapshots'] },
 ];
 
 let dbRows = {};
@@ -808,16 +809,16 @@ let dbRows = {};
 function renderDbSummary(info) {
   const box = $('#dbSummary');
   if (!info || !info.available) {
-    box.innerHTML = `<div class="card"><div class="k">数据库</div>
-      <div class="v db-err">不可用</div>
-      <div class="s">${(info && info.reason) || '未安装 sqlalchemy'}</div></div>`;
+    box.innerHTML = `<div class="card"><div class="k">${t('nav.db')}</div>
+      <div class="v db-err">${t('db.unavailable')}</div>
+      <div class="s">${(info && info.reason) || t('db.noSqlalchemy')}</div></div>`;
     return;
   }
   const cards = [
-    ['方言', info.dialect.toUpperCase(), info.sqlite ? '单文件，零配置' : '客户端/服务器'],
-    ['表数量', info.tables.length, '14 张表 · 5 层结构'],
-    ['总行数', (info.total_rows || 0).toLocaleString(), '全部表累计'],
-    ['文件大小', (info.size_mb ?? 0) + ' MB', 'SQLite 数据文件'],
+    [t('db.dialect'), info.dialect.toUpperCase(), info.sqlite ? t('db.singleFile') : t('db.clientServer')],
+    [t('db.tables'), info.tables.length, t('db.structure')],
+    [t('db.rows'), (info.total_rows || 0).toLocaleString(), t('db.allRows')],
+    [t('db.size'), (info.size_mb ?? 0) + ' MB', t('db.sqliteFile')],
   ];
   box.innerHTML = cards.map(([k, v, s], i) =>
     `<div class="card" style="animation:dbIn .42s var(--ease) ${i * 60}ms forwards;opacity:0">
@@ -833,14 +834,15 @@ function renderDbTables(info) {
   const maxRows = Math.max(1, ...Object.values(byName));
 
   box.innerHTML = DB_GROUPS.map((g, gi) => `
-    <div class="db-group-title">${g.title}</div>
-    <div class="db-grid">${g.tables.map(([n, d], ti) => {
+    <div class="db-group-title">${t(g.key)}</div>
+    <div class="db-grid">${g.tables.map((n, ti) => {
       const rows = byName[n] ?? 0;
       const w = Math.round(Math.log10(rows + 1) / Math.log10(maxRows + 1) * 100);
-      return `<div class="db-tbl" style="animation-delay:${(gi * 5 + ti) * 45}ms" title="${d}">
+      const desc = t('db.desc.' + n);
+      return `<div class="db-tbl" style="animation-delay:${(gi * 3 + ti) * 45}ms" title="${desc}">
         <div class="n">${n}</div>
         <div class="r${rows ? '' : ' empty'}">${rows.toLocaleString()}</div>
-        <div class="m">${d}</div>
+        <div class="m">${desc}</div>
         <div class="b"><i data-w="${w}"></i></div>
       </div>`;
     }).join('')}
@@ -884,11 +886,11 @@ function renderEr() {
       + `${x2},${(y1 + y2) / 2} ${x2},${y2}" marker-end="url(#ar)" `
       + `style="animation-delay:${i * 120}ms" opacity=".55"/>`);
   });
-  nodes.forEach(([x, y, w, h, t, s, hi]) => {
+  nodes.forEach(([x, y, w, h, t_, s, hi]) => {
     svg.push(`<rect class="er-box-node${hi ? ' er-node-hi' : ''}" x="${x}" y="${y}" `
       + `width="${w}" height="${h}" rx="6"/>`);
-    svg.push(`<text class="er-t" x="${x + 11}" y="${y + 18}">${t}</text>`);
-    svg.push(`<text class="er-s" x="${x + 11}" y="${y + 32}">${s}</text>`);
+    svg.push(`<text class="er-t" x="${x + 11}" y="${y + 18}">${t_}</text>`);
+    svg.push(`<text class="er-s" x="${x + 11}" y="${y + 32}">${t('er.' + t_)}</text>`);
   });
   svg.push('</svg>');
   $('#dbEr').innerHTML = svg.join('');
@@ -901,17 +903,17 @@ async function loadDb() {
     renderDbSummary(info);
     renderDbTables(info);
     $('#dbTag').textContent = info.available
-      ? `${info.dialect.toUpperCase()} · ${info.total_rows.toLocaleString()} 行`
-      : '不可用';
+      ? t('db.tag', { dialect: info.dialect.toUpperCase(), n: info.total_rows.toLocaleString() })
+      : t('db.unavailable');
     $('#dbPath').textContent = info.location || '';
   } catch (e) {
-    $('#dbTag').textContent = '不可用';
+    $('#dbTag').textContent = t('db.unavailable');
   }
   try {
     const ex = await api('/api/db/examples');
     const sel = $('#dbExampleSel');
-    sel.innerHTML = '<option value="">— 选择示例查询 —</option>' +
-      ex.examples.map((q, i) => `<option value="${i}">${q['名称']}</option>`).join('');
+    sel.innerHTML = `<option value="">${t('sql.pick')}</option>` +
+      ex.examples.map((q, i) => `<option value="${i}">${L() === 'en' ? (q.name_en || q['名称']) : q['名称']}</option>`).join('');
     sel.onchange = () => {
       const i = sel.value;
       if (i === '') return;
@@ -925,7 +927,7 @@ async function loadDb() {
 async function runDbQuery() {
   const sql = $('#dbSql').value.trim();
   const msg = $('#dbMsg');
-  if (!sql) { msg.textContent = '请输入 SQL'; return; }
+  if (!sql) { msg.textContent = t('sql.enter'); return; }
   loading(true);
   try {
     const r = await fetch('/api/db/query', {
@@ -935,10 +937,10 @@ async function runDbQuery() {
     });
     const d = await r.json();
     if (!r.ok) {
-      msg.innerHTML = `<span class="db-err">错误：${d.detail || r.status}</span>`;
+      msg.innerHTML = `<span class="db-err">${t('sql.error')}${d.detail || r.status}</span>`;
       return;
     }
-    msg.textContent = `${d.rowcount} 行 · ${d.elapsed_ms} ms`;
+    msg.textContent = t('sql.rows', { n: d.rowcount, ms: d.elapsed_ms });
     if (!d.columns.length) { $('#dbResult').innerHTML = ''; return; }
     $('#dbResult').innerHTML =
       `<thead><tr>${d.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
@@ -951,7 +953,7 @@ async function runDbQuery() {
           return `<td>${s}</td>`;
         }).join('') + '</tr>').join('') + '</tbody>';
   } catch (e) {
-    msg.innerHTML = `<span class="db-err">请求失败：${e.message}</span>`;
+    msg.innerHTML = `<span class="db-err">${t('sql.failed')}${e.message}</span>`;
   } finally { loading(false); }
 }
 
@@ -1002,36 +1004,37 @@ function renderAcctCards(d) {
   // 连接状态指示：绿点=已连上 TWS，灰点=未连接
   const conn = $('#acctConn');
   const mkt = d.ok ? (d.market_state || {}) : {};
-  const label = !d.ok ? '未连接'
-    : (mkt.open ? '已连接 · 交易中' : '已连接 · 休市');
+  const connTxt = !d.ok ? t('acct.conn.off')
+    : (mkt.open ? t('acct.conn.on') : t('acct.conn.closed'));
   conn.classList.toggle('on', !!d.ok);
-  conn.querySelector('span').textContent = label;
+  conn.querySelector('span').textContent = connTxt;
   $('#acctTag').textContent = d.ok
     ? `${(d.account || {}).accounts || '—'} · ${d.ts || ''}`
-    : (d.error || '不可用');
+    : (d.error || t('acct.unavailable'));
 
   if (!d.ok) {
     box.innerHTML = `<div class="card" style="animation:dbIn .4s var(--ease) forwards">
-      <div class="k">连接状态</div><div class="v db-err">未连接</div>
-      <div class="s">${d.error || '无法连接 TWS / Gateway'}</div></div>`;
+      <div class="k">${t('acct.connStatus')}</div><div class="v db-err">${t('acct.conn.off')}</div>
+      <div class="s">${d.error || t('acct.noTwS')}</div></div>`;
     return;
   }
-  const t = d.totals || {};
-  const cur = t['基准币种'] || 'HKD';
-  const pnl = t['持仓盈亏'];
-  const day = t['当日盈亏'];
+  // 注意：不能叫 t —— 会遮蔽全局翻译函数 t()
+  const tot = d.totals || {};
+  const cur = tot['基准币种'] || 'HKD';
+  const pnl = tot['持仓盈亏'];
+  const day = tot['当日盈亏'];
   const cards = [
-    ['账户净值', nf(t['净值'], 0), `${cur} · 含持仓与现金`, '', true],
-    ['账面现金', nf(t['现金'], 0), `占净值 ${pctf(t['现金占比'], 1)}`, ''],
-    ['可用资金', nf(t['可用资金'], 0), '可立即下单', ''],
-    ['购买力', nf(t['购买力'], 0), '含保证金杠杆', ''],
-    ['持仓市值', nf(t['持仓市值'], 0), `${t['持仓数'] ?? 0} 个持仓`, ''],
-    ['持仓盈亏', (pnl !== null && !Number.isNaN(pnl) ? (pnl > 0 ? '+' : '') : '') + nf(pnl, 0),
-     '按成本价计算', cls(pnl)],
-    ['当日盈亏', (day !== null && !Number.isNaN(day) ? (day > 0 ? '+' : '') : '') + nf(day, 0),
-     t['当日盈亏基线'] ? '对比今日首个快照' : 'IB 未提供该字段', cls(day)],
-    ['已实现盈亏', nf(t['已实现盈亏'], 0), '已平仓落袋', cls(t['已实现盈亏'])],
-    ['杠杆', fmt(t['杠杆'], 2) + '×', '持仓市值 / 净值', ''],
+    [t('card.netliq'), nf(tot['净值'], 0), t('card.netliq.sub', { cur }), '', true],
+    [t('card.cash'), nf(tot['现金'], 0), t('card.cash.sub', { p: pctf(tot['现金占比'], 1) }), ''],
+    [t('card.avail'), nf(tot['可用资金'], 0), t('card.avail.sub'), ''],
+    [t('card.bp'), nf(tot['购买力'], 0), t('card.bp.sub'), ''],
+    [t('card.mv'), nf(tot['持仓市值'], 0), t('card.mv.sub', { n: tot['持仓数'] ?? 0 }), ''],
+    [t('card.pnl'), (pnl !== null && !Number.isNaN(pnl) ? (pnl > 0 ? '+' : '') : '') + nf(pnl, 0),
+     t('card.pnl.sub'), cls(pnl)],
+    [t('card.day'), (day !== null && !Number.isNaN(day) ? (day > 0 ? '+' : '') : '') + nf(day, 0),
+     tot['当日盈亏基线'] ? t('card.day.sub') : t('card.day.sub2'), cls(day)],
+    [t('card.realized'), nf(tot['已实现盈亏'], 0), t('card.realized.sub'), cls(tot['已实现盈亏'])],
+    [t('card.lev'), fmt(tot['杠杆'], 2) + '×', t('card.lev.sub'), ''],
   ];
   box.innerHTML = cards.map(([k, v, s, c, big], i) =>
     `<div class="card${big ? ' card-hero' : ''}" style="animation:dbIn .42s var(--ease) ${i * 55}ms forwards;opacity:0">
@@ -1044,21 +1047,21 @@ function renderAcctCards(d) {
 function renderAcctAlloc(d) {
   const box = $('#acctAlloc');
   if (!d.ok) { box.innerHTML = ''; return; }
-  const t = d.totals || {};
-  const netliq = Number(t['净值'] || 0);
-  const cash = Number(t['现金'] || 0);
-  const gross = Number(t['持仓市值'] || 0);
+  const tot = d.totals || {};
+  const netliq = Number(tot['净值'] || 0);
+  const cash = Number(tot['现金'] || 0);
+  const gross = Number(tot['持仓市值'] || 0);
   if (netliq <= 0) { box.innerHTML = ''; return; }
 
-  const segs = [{ name: '现金', v: cash, color: '#39415c' }];
+  const segs = [{ name: t('acct.cash'), v: cash, color: '#39415c' }];
   (d.rows || []).forEach((r, i) => {
     const mv = Number(r['市值'] || 0);
     if (!mv) return;
-    const hkd = Math.abs(mv) * Number(t['汇率'] || 1);
+    const hkd = Math.abs(mv) * Number(tot['汇率'] || 1);
     segs.push({ name: r['标的'], v: hkd, color: ACCT_PALETTE[i % ACCT_PALETTE.length] });
   });
   const other = Math.max(0, netliq - cash - gross);
-  if (other > netliq * 0.005) segs.push({ name: '其它', v: other, color: '#4a5163' });
+  if (other > netliq * 0.005) segs.push({ name: t('acct.other'), v: other, color: '#4a5163' });
 
   const total = segs.reduce((a, b) => a + b.v, 0) || 1;
   const bar = segs.map((s, i) =>
@@ -1068,7 +1071,7 @@ function renderAcctAlloc(d) {
     `<span class="lg-item"><i style="background:${s.color}"></i>${s.name}
       <b>${(s.v / total * 100).toFixed(1)}%</b></span>`).join('');
   box.innerHTML =
-    `<div class="alloc-title">资产配置</div>
+    `<div class="alloc-title">${t('acct.alloc')}</div>
      <div class="alloc-bar">${bar}</div>
      <div class="legend">${leg}</div>`;
   requestAnimationFrame(() => {
@@ -1082,16 +1085,16 @@ function renderAcctPositions(d) {
   const rows = d.rows || [];
   if (!rows.length) {
     tbl.innerHTML = '';
-    $('#acctPosSum').textContent = '当前无持仓';
+    $('#acctPosSum').textContent = t('positions.none');
     return;
   }
   const cols = d.columns || Object.keys(rows[0]);
   const gross = Number((d.totals || {})['持仓市值'] || 0);
   const pnlSum = Number((d.totals || {})['持仓盈亏'] || 0);
   $('#acctPosSum').textContent =
-    `持仓市值 ${nf(gross, 0)} · 浮动盈亏 ${(pnlSum > 0 ? '+' : '')}${nf(pnlSum, 0)}`;
+    t('positions.sum', { gross: nf(gross, 0), pnl: (pnlSum > 0 ? '+' : '') + nf(pnlSum, 0) });
 
-  const head = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+  const head = `<thead><tr>${cols.map(c => `<th>${label(c)}</th>`).join('')}</tr></thead>`;
   const body = rows.map((r, ri) => {
     const tds = cols.map(c => {
       const v = r[c];
@@ -1125,11 +1128,10 @@ function renderAcctCurve(d) {
   const times = hist.times || [];
   const vals = hist['净值'] || [];
   $('#acctCurveTag').textContent =
-    d.ok ? `来自 account_snapshots · ${times.length} 个采样点` : '无数据';
+    d.ok ? t('acctCurve.tag', { n: times.length }) : t('acctCurve.none');
   if (times.length < 2) {
     if (state.charts.acct) { state.charts.acct.remove(); state.charts.acct = null; }
-    el.innerHTML = `<div class="empty-hint">快照不足（需要至少 2 条）。
-      刷新几次看板即可累积，或常驻运行 scripts/account_daemon.py。</div>`;
+    el.innerHTML = `<div class="empty-hint">${t('acctCurve.empty')}</div>`;
     return;
   }
   // 轻量图要求时间严格升序且唯一：按时间戳去重（同一分钟只留最后一条）
@@ -1186,7 +1188,7 @@ async function loadAcctOrders() {
     if (!rows.length) { tbl.innerHTML = ''; return; }
     const cols = ['时间', '账户', '标的', '动作', '股数', '类型', '限价', '状态', '金额(HKD)'];
     tbl.innerHTML =
-      `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+      `<thead><tr>${cols.map(c => `<th>${label(c)}</th>`).join('')}</tr></thead><tbody>` +
       rows.map((r, ri) =>
         `<tr style="animation:dbIn .32s var(--ease) ${Math.min(ri, 12) * 35}ms forwards;opacity:0">` +
         cols.map(c => {
@@ -1194,7 +1196,7 @@ async function loadAcctOrders() {
           let s = (v === null || v === undefined) ? '—'
             : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : fmt(v, 2)) : String(v));
           if (typeof v === 'string' && v.length > 40) s = v.slice(0, 40) + '…';
-          if (c === '动作') return `<td class="${v === 'BUY' ? 'up' : 'down'}">${s}</td>`;
+          if (c === '动作') return `<td class="${v === 'BUY' ? 'up' : 'down'}">${s === 'BUY' ? 'BUY' : (s === 'SELL' ? 'SELL' : s)}</td>`;
           return `<td>${s}</td>`;
         }).join('') + '</tr>').join('') + '</tbody>';
   } catch (e) { /* 静默 */ }
@@ -1204,7 +1206,7 @@ function acctSetAuto(on) {
   ACCT.auto = on;
   clearInterval(ACCT.timer); clearInterval(ACCT.tick);
   ACCT.timer = null; ACCT.tick = null;
-  if (!on) { $('#acctNext').textContent = '已暂停'; ACCT.cd = 0; return; }
+  if (!on) { $('#acctNext').textContent = t('common.paused'); ACCT.cd = 0; return; }
   ACCT.cd = ACCT.interval;
   ACCT.timer = setInterval(() => {
     if (state.view === 'account') loadAccountBoard(true);
@@ -1212,9 +1214,9 @@ function acctSetAuto(on) {
   ACCT.tick = setInterval(() => {
     ACCT.cd -= 1;
     if (ACCT.cd <= 0) ACCT.cd = ACCT.interval;
-    if (ACCT.auto) $('#acctNext').textContent = ACCT.cd + 's 后刷新';
+    if (ACCT.auto) $('#acctNext').textContent = t('acct.next', { s: ACCT.cd });
   }, 1000);
-  $('#acctNext').textContent = ACCT.cd + 's 后刷新';
+  $('#acctNext').textContent = t('acct.next', { s: ACCT.cd });
 }
 
 function bindAccount() {
@@ -1224,5 +1226,5 @@ function bindAccount() {
 
 boot().catch(e => {
   $('#boot').innerHTML = `<div class="boot-logo">Quant<span>Lab</span></div>
-    <div class="boot-txt" style="color:#f23645">启动失败：${e.message}</div>`;
+    <div class="boot-txt" style="color:#f23645">${t('boot.failed')}: ${e.message}</div>`;
 });

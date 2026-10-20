@@ -237,6 +237,35 @@ SELECT ts, account, net_liquidation, total_cash, available_funds
 FROM account_snapshots ORDER BY ts DESC LIMIT 20;
 ```
 
+### 界面中英文切换
+
+右上角有 `中 / EN` 胶囊按钮，选择存进 localStorage，刷新后保持；首次访问跟随浏览器语言。
+
+实现分三层：
+
+| 层 | 做法 |
+|---|---|
+| 静态文案 | `index.html` 上标 `data-i18n="key"`，启动时 `applyI18n()` 批量替换（含 placeholder / title） |
+| 动态文案 | 全部走 `t('key')`，支持 `{var}` 占位，例如 `t('acct.next', {s: 10})` |
+| 数据字段名 | 见下 |
+
+**数据字段名是重点**：策略名、指标列名、账户字段在 CSV 和数据库里都是中文
+（`夏普比率`、`ADX趋势过滤`、`持仓市值`…），这是数据契约 —— 回测、实验配置、SQL 查询
+都依赖它。所以翻译只发生在展示层：
+
+```js
+label('夏普比率')        // → 'Sharpe'        （取值仍然用中文 key）
+stratName('ADX趋势过滤') // → 'ADX Trend Filter'
+```
+
+后端一行没改（只给 SQL 示例查询加了个 `name_en` 字段）。
+
+字典在 `quant_platform/web/static/js/i18n.js`，zh / en 各 197 条，两端键集合严格对齐，
+英文侧不含任何中文字符（有脚本校验）。
+
+切换语言会整页 reload，当前视图与标的通过 sessionStorage 还原。选这个方案而不是就地重绘，
+是因为界面有 8 个视图 + 大量动态渲染点，逐个重绘容易漏；reload 能保证不漏翻。
+
 ---
 
 ## 七、数据库系统（SQL 持久化）

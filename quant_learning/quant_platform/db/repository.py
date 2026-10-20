@@ -1040,13 +1040,13 @@ def sync_model_registry(experiment: Optional[str] = None,
 def example_queries() -> List[Dict[str, str]]:
     """Web 端与 CLI 共用的示例查询（也是课程演示脚本）。"""
     return [
-        {"名称": "数据资产总览（每个标的多少根K线）",
+        {"名称": "数据资产总览（每个标的多少根K线）", "name_en": "Data inventory (bars per symbol)",
          "sql": "SELECT a.symbol AS 标的, b.bar_size AS 周期, COUNT(*) AS 行数,\n"
                 "       MIN(b.ts) AS 起始, MAX(b.ts) AS 结束, b.source AS 来源\n"
                 "FROM bars b JOIN assets a ON a.id = b.asset_id\n"
                 "GROUP BY a.symbol, b.bar_size, b.source\n"
                 "ORDER BY 行数 DESC"},
-        {"名称": "策略排行榜（跨标的平均夏普）",
+        {"名称": "策略排行榜（跨标的平均夏普）", "name_en": "Strategy leaderboard (avg Sharpe)",
          "sql": "SELECT r.strategy AS 策略, COUNT(*) AS 标的数,\n"
                 "       ROUND(AVG(m.sharpe), 3) AS 平均夏普,\n"
                 "       ROUND(AVG(m.annual_return), 4) AS 平均年化,\n"
@@ -1054,36 +1054,36 @@ def example_queries() -> List[Dict[str, str]]:
                 "FROM backtest_runs r JOIN backtest_metrics m ON m.run_id = r.id\n"
                 "WHERE m.sharpe IS NOT NULL\n"
                 "GROUP BY r.strategy ORDER BY 平均夏普 DESC"},
-        {"名称": "显著模型（PSR>0.95 且 DSR>0.95）",
+        {"名称": "显著模型（PSR>0.95 且 DSR>0.95）", "name_en": "Significant models (PSR>0.95 & DSR>0.95)",
          "sql": "SELECT r.strategy AS 策略, r.symbol AS 标的,\n"
                 "       ROUND(m.sharpe, 3) AS 夏普, ROUND(m.psr, 3) AS PSR,\n"
                 "       ROUND(m.dsr, 3) AS DSR\n"
                 "FROM backtest_runs r JOIN backtest_metrics m ON m.run_id = r.id\n"
                 "WHERE m.psr > 0.95 AND m.dsr > 0.95\n"
                 "ORDER BY m.dsr DESC"},
-        {"名称": "入选实盘的模型",
+        {"名称": "入选实盘的模型", "name_en": "Models promoted to live",
          "sql": "SELECT strategy AS 模型, symbol AS 标的, sharpe AS 夏普,\n"
                 "       psr, dsr, note AS 备注\n"
                 "FROM model_registry WHERE selected = 1 ORDER BY sharpe DESC"},
-        {"名称": "最近 20 笔委托记录",
+        {"名称": "最近 20 笔委托记录", "name_en": "Latest 20 orders",
          "sql": "SELECT ts AS 时间, account AS 账户, symbol AS 标的, action AS 动作,\n"
                 "       qty AS 股数, order_type AS 类型, limit_price AS 限价,\n"
                 "       status AS 状态, broker_order_id AS 订单号\n"
                 "FROM orders ORDER BY id DESC LIMIT 20"},
-        {"名称": "各标的盈亏笔数统计",
+        {"名称": "各标的盈亏笔数统计", "name_en": "Win/loss trade counts by symbol",
          "sql": "SELECT symbol AS 标的, COUNT(*) AS 交易笔数,\n"
                 "       SUM(CASE WHEN ret > 0 THEN 1 ELSE 0 END) AS 盈利笔数,\n"
                 "       ROUND(AVG(ret), 5) AS 平均每笔收益\n"
                 "FROM trades GROUP BY symbol ORDER BY 平均每笔收益 DESC"},
-        {"名称": "训练集清单",
+        {"名称": "训练集清单", "name_en": "Training set inventory",
          "sql": "SELECT name AS 训练集, n_rows AS 样本数, n_features AS 特征数,\n"
                 "       label AS 标签, start AS 起始, end AS 结束\n"
                 "FROM feature_sets ORDER BY id DESC"},
-        {"名称": "API 抓取日志（最近 20 次）",
+        {"名称": "API 抓取日志（最近 20 次）", "name_en": "API ingest log (last 20)",
          "sql": "SELECT source AS 数据源, symbol AS 标的, status AS 状态,\n"
                 "       rows AS 行数, duration_ms AS 耗时毫秒, finished_at AS 完成时间\n"
                 "FROM ingest_log ORDER BY id DESC LIMIT 20"},
-        {"名称": "账户净值曲线",
+        {"名称": "账户净值曲线", "name_en": "Account equity curve",
          "sql": "SELECT ts AS 时间, account AS 账户, net_liquidation AS 净值,\n"
                 "       total_cash AS 现金, unrealized_pnl AS 浮动盈亏\n"
                 "FROM account_snapshots ORDER BY ts DESC LIMIT 50"},
