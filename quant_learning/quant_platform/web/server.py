@@ -74,6 +74,27 @@ def _read_csv(p: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _pts(times, values, ndigits: int = 2) -> List[dict]:
+    """
+    把 (时间标签, 数值) 序列转成图表点，**跳过 NaN / ±Inf**。
+
+    这是净值类图表出现"莫名其妙竖线"的根源：NaN 一旦被序列化成 null，
+    轻量图表会把它当作缺失值或 0，折线就会从高位瞬间砸到下沿再弹回，
+    每个 NaN 都变成一根贯穿全图的垂直线。宁可不画那个点（折线直接跨过去），
+    也不能给它一个假值。
+    """
+    out: List[dict] = []
+    for t, x in zip(times, values):
+        try:
+            v = float(x)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(v):
+            continue
+        out.append({"time": t, "value": round(v, ndigits)})
+    return out
+
+
 def _run_in_loop(fn, timeout: float = 120):
     """
     ib_insync 依赖"创建它的那个线程的事件循环"。之前每次请求都新开线程+新循环，
@@ -381,16 +402,19 @@ def equity_curves(experiment: str = "main_compare", symbol: str = "SPY",
     cols = cols[:top_n]
     series = []
     for c in cols:
-        v = df[c].astype(float)
-        base = v.dropna()
-        if not len(base):
+        # NaN 点必须直接剔除：返回 null 会让前端折线跌到 0 再弹回，
+        # 画成一根根贯穿全图的竖线（历史上就是这么来的）。
+        pts = _pts(times, df[c].astype(float).values, ndigits=2)
+        if len(pts) < 2:
             continue
-        series.append({
-            "name": c.split("|")[0],
-            "data": [{"time": t, "value": None if pd.isna(x) else round(float(x), 2)}
-                     for t, x in zip(times, v)],
-        })
-    return {"times": times, "series": series, "symbol": symbol}
+        # 归一到起点 = 100。原始值都是 1,000,000 量级，8 条线会挤成一条带，
+        # 归一后策略间差异才看得出来（TradingView 的 compare 也是这么做的）。
+        base = pts[0]["value"]
+        if base:
+            for p in pts:
+                p["value"] = round(p["value"] / base * 100, 2)
+        series.append({"name": c.split("|")[0], "data": pts, "pts": len(pts)})
+    return {"times": times, "series": series, "symbol": symbol, "base": 100}
 
 
 @app.get("/api/significance")
@@ -451,36 +475,44 @@ def _compute_portfolio(strategy: str, scheme: str) -> dict:
     except Exception as e:                                     # noqa: BLE001
         raise HTTPException(400, f"组合计算失败: {str(e)[:160]}")
 
-    eq = res.equity / res.equity.iloc[0] * 100
-    times = pd.to_datetime(res.equity.index).strftime("%Y-%m-%d").tolist()
-    equity = [{"time": t, "value": round(float(v), 2)} for t, v in zip(times, eq.values)]
+    eq = res.equity.astype(float).replace([np.inf, -np.inf], np.nan)
+    first = eq.dropna()
+    eq = eq / (first.iloc[0] if len(first) else 1.0) * 100
+    times = pd.to_datetime(eq.index).strftime("%Y-%m-%d").tolist()
+    equity = _pts(times, eq.values, ndigits=2)
 
     # 基准：等权买入持有（各自归一到 100 后取平均，近似每日再平衡）
     from ..data import get_data as _gd
     bench_df = pd.DataFrame({
         s: (lambda df: df["close"] / df["close"].iloc[0] * 100)(_gd(s, duration="5 Y"))
         for s in res.weights.columns})
-    bench_avg = bench_df.mean(axis=1).reindex(res.equity.index).ffill()
-    benchmark = [{"time": t, "value": round(float(v), 2)}
-                 for t, v in zip(times, bench_avg.values)]
+    bench_avg = bench_df.mean(axis=1).reindex(eq.index).ffill()
+    benchmark = _pts(times, bench_avg.values, ndigits=2)
 
     # 权重：转成逐标的折线序列
-    w = res.weights
+    w = res.weights.astype(float).replace([np.inf, -np.inf], np.nan)
     w_times = pd.to_datetime(w.index).strftime("%Y-%m-%d").tolist()
     weight_series = []
     palette = ['#2962ff', '#f23645', '#089981', '#e0b64a', '#7b61ff',
                '#00bcd4', '#ff7043', '#9ccc65']
     for i, col in enumerate(w.columns):
+        last = w[col].dropna()
         weight_series.append({
             "name": col, "color": palette[i % len(palette)],
-            "current": round(float(w[col].iloc[-1]), 4),
-            "data": [{"time": t, "value": round(float(v), 4)}
-                     for t, v in zip(w_times, w[col].values)],
+            "current": round(float(last.iloc[-1]), 4) if len(last) else 0.0,
+            "data": _pts(w_times, w[col].values, ndigits=4),
         })
 
-    metrics = {k: (None if (isinstance(v, float) and np.isnan(v)) else v)
-               for k, v in res.metrics.items()}
-    contrib = {k: round(float(v), 4) for k, v in res.contributions.items()}
+    def _num(v, nd=4):
+        """NaN / ±Inf 一律转 None：FastAPI 的 JSON 编码器不接受这些值。"""
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return round(f, nd) if np.isfinite(f) else None
+
+    metrics = {k: _num(v, 6) for k, v in res.metrics.items()}
+    contrib = {k: _num(v, 4) for k, v in res.contributions.items()}
 
     return {
         "strategy": strategy, "scheme": scheme,

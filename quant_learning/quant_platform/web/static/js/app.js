@@ -231,6 +231,41 @@ async function loadOHLC() {
   renderPriceChart();
 }
 
+/* 图表数据清洗：剔除 null / NaN / Inf，按时间升序去重。
+   轻量图表拿到 null 会把折线砸到底再弹回，画成一堆贯穿全图的竖线；
+   时间乱序则会直接抛错。所有 series 落图前都必须过这一道。 */
+function cleanSeries(data) {
+  if (!Array.isArray(data)) return [];
+  const tkey = (t) => {
+    if (typeof t === 'number') return t;
+    if (t && typeof t === 'object') return Date.UTC(t.year, t.month - 1, t.day || 1);
+    return String(t);            // 'YYYY-MM-DD' 字典序即时间序
+  };
+  const out = [];
+  let lastKey = null;
+  for (const p of data) {
+    if (!p || p.time === null || p.time === undefined) continue;
+    const v = p.value;
+    if (v === null || v === undefined || typeof v !== 'number' || !isFinite(v)) continue;
+    const k = tkey(p.time);
+    if (lastKey !== null && k === lastKey) { out[out.length - 1].value = v; continue; }  // 同日重复，后值覆盖
+    if (lastKey !== null && k < lastKey) continue;                                       // 乱序，丢弃
+    out.push({ time: p.time, value: v });
+    lastKey = k;
+  }
+  return out;
+}
+
+/* #rrggbb + alpha → rgba()，用于面积图半透明填充 */
+function hexA(hex, a) {
+  const s = String(hex || '#2962ff').replace('#', '');
+  const n = s.length === 3 ? s.split('').map(c => c + c).join('') : s;
+  const r = parseInt(n.slice(0, 2), 16) || 0;
+  const g = parseInt(n.slice(2, 4), 16) || 0;
+  const b = parseInt(n.slice(4, 6), 16) || 0;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 function baseChartOpts() {
   return {
     layout: {
@@ -400,32 +435,34 @@ async function loadSignals() {
 async function loadEquityCurves(symbol) {
   const d = await api(`/api/equity_curves?symbol=${encodeURIComponent(symbol || state.symbol)}&top_n=8`);
   if (!d.series || !d.series.length) { toast('该标的暂无净值曲线'); return; }
-  $('#eqTag').textContent = `${d.symbol} · 前 ${d.series.length} 个模型`;
+  $('#eqTag').textContent = `${d.symbol} · 前 ${d.series.length} 个模型 · 起点归一 100`;
 
   const el = $('#equityChart');
   if (state.charts.equity) { state.charts.equity.remove(); state.charts.equity = null; }
   const c = LightweightCharts.createChart(el, {
     ...baseChartOpts(), width: el.clientWidth, height: el.clientHeight,
-    localization: { priceFormatter: (p) => p.toFixed(0) },
+    localization: { priceFormatter: (p) => p.toFixed(1) },
   });
   state.charts.equity = c;
   const palette = ['#2962ff', '#f23645', '#089981', '#e0b64a', '#7b61ff',
     '#00bcd4', '#ff7043', '#9ccc65'];
   const seriesRefs = [];
   d.series.forEach((s, i) => {
+    const pts = cleanSeries(s.data);
+    if (pts.length < 2) return;
     const ls = c.addLineSeries({
       color: palette[i % palette.length], lineWidth: 2,
       priceLineVisible: false, lastValueVisible: true,
-      crosshairMarkerVisible: true,
+      crosshairMarkerVisible: true, priceLineWidth: 1,
     });
-    ls.setData(s.data);
-    seriesRefs.push({ name: s.name, ls, visible: true });
+    ls.setData(pts);
+    seriesRefs.push({ name: s.name, ls, visible: true, color: palette[i % palette.length] });
   });
   c.timeScale().fitContent();
   // 图例可点击显隐
   const leg = $('#equityLegend');
-  leg.innerHTML = d.series.map((s, i) =>
-    `<span class="lg-item" data-i="${i}"><i style="background:${palette[i % palette.length]}"></i>${s.name}</span>`).join('');
+  leg.innerHTML = seriesRefs.map((s, i) =>
+    `<span class="lg-item" data-i="${i}"><i style="background:${s.color}"></i>${s.name}</span>`).join('');
   leg.querySelectorAll('.lg-item').forEach(item => item.onclick = () => {
     const ref = seriesRefs[+item.dataset.i];
     ref.visible = !ref.visible;
@@ -471,49 +508,81 @@ async function loadPortfolio() {
   });
   state.charts.pfEq = c;
   c.addLineSeries({ color: TV.accent, lineWidth: 2, title: '组合',
-    priceLineVisible: false, lastValueVisible: true }).setData(d.equity);
+    priceLineVisible: false, lastValueVisible: true }).setData(cleanSeries(d.equity));
   c.addLineSeries({ color: '#787b86', lineWidth: 1, lineStyle: 2, title: '基准',
-    priceLineVisible: false, lastValueVisible: false }).setData(d.benchmark);
+    priceLineVisible: false, lastValueVisible: false }).setData(cleanSeries(d.benchmark));
   c.timeScale().fitContent();
   $('#pfLegend').innerHTML =
     `<span><i style="background:${TV.accent}"></i>${d.strategy}（${schemeLabel(scheme)}）</span>
      <span><i style="background:#787b86"></i>等权买入持有基准</span>`;
 
-  // 权重折线
+  // 权重：策略仓位是 0/1 开关型，画折线等于画一堆上下跳的竖线。
+  // 改成堆叠面积：按当前权重从大到小依次累加，后画的层覆盖前一层上沿，
+  // 视觉上就是一条条资产配置带，"什么时候持有什么"一眼能看出来。
   const wel = $('#pfWeightChart');
   if (state.charts.pfW) { state.charts.pfW.remove(); state.charts.pfW = null; }
   const wc = LightweightCharts.createChart(wel, {
     ...baseChartOpts(), width: wel.clientWidth, height: wel.clientHeight,
     timeScale: { ...baseChartOpts().timeScale, timeVisible: false },
     localization: { priceFormatter: (p) => (p * 100).toFixed(0) + '%' },
+    rightPriceScale: { ...baseChartOpts().rightPriceScale,
+      scaleMargins: { top: 0.08, bottom: 0.02 } },
   });
   state.charts.pfW = wc;
+
+  const rawW = (d.weights || []).map(w => ({
+    name: w.name, color: w.color, current: w.current || 0,
+    map: new Map(cleanSeries(w.data).map(p => [p.time, p.value])),
+  })).filter(w => w.map.size);
+  // 时间轴取所有标的并集并排序
+  const wt = [...new Set(rawW.flatMap(w => [...w.map.keys()]))].sort();
+  // 按历史平均权重从大到小叠：大仓位垫底、小仓位浮在上层，
+  // 这样即便某天大小关系反转，覆盖关系也不会把主仓位整条盖掉。
+  const avgOf = w => [...w.map.values()].reduce((a, b) => a + b, 0) / w.map.size;
+  const stackOrder = [...rawW].sort((a, b) => avgOf(b) - avgOf(a));
   const wRefs = [];
-  (d.weights || []).forEach(w => {
-    const ls = wc.addLineSeries({ color: w.color, lineWidth: 1,
-      priceLineVisible: false, lastValueVisible: false });
-    ls.setData(w.data);
-    wRefs.push({ name: w.name, ls, visible: true, current: w.current });
-  });
-  wc.timeScale().fitContent();
-  const wleg = $('#pfLegend');
+  const hiddenW = new Set();
+  // 重绘式堆叠：隐藏的层不参与累计，上层自然往下落，
+  // 所以堆叠关系任何时刻都是对的（直接 applyOptions({visible:false}) 会留空洞）。
+  function drawStack() {
+    const vr = wc.timeScale().getVisibleLogicalRange();
+    wRefs.forEach(r => { try { wc.removeSeries(r.ls); } catch (e) {} });
+    wRefs.length = 0;
+    const cum = new Array(wt.length).fill(0);
+    stackOrder.forEach(w => {
+      if (hiddenW.has(w.name)) return;
+      for (let i = 0; i < wt.length; i++) cum[i] += (w.map.get(wt[i]) || 0);
+      const data = cleanSeries(wt.map((t, i) => ({ time: t, value: +cum[i].toFixed(4) })));
+      if (data.length < 2) return;
+      const ls = wc.addAreaSeries({
+        lineColor: w.color, lineWidth: 1,
+        topColor: hexA(w.color, 0.6), bottomColor: hexA(w.color, 0.6),
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      ls.setData(data);
+      wRefs.push({ name: w.name, ls, color: w.color, current: w.current });
+    });
+    if (vr) wc.timeScale().setVisibleLogicalRange(vr);
+    else wc.timeScale().fitContent();
+  }
+  drawStack();
   $('#pfWeightNow').textContent = '当前权重：' +
-    (d.weights || []).filter(w => w.current > 0.005)
-      .map(w => `${w.name} ${(w.current * 100).toFixed(0)}%`).join(' · ') || '空仓';
-  // 权重图例（点击显隐）
+    ((d.weights || []).filter(w => w.current > 0.005)
+      .map(w => `${w.name} ${(w.current * 100).toFixed(0)}%`).join(' · ') || '空仓');
+  // 权重图例（点击显隐，触发重绘）
   document.getElementById('pfWeightLegend')?.remove();
   const wbox = document.createElement('div');
   wbox.className = 'legend';
   wbox.id = 'pfWeightLegend';
   wbox.style.padding = '6px 14px';
-  wbox.innerHTML = (d.weights || []).map((w, i) =>
-    `<span class="lg-item" data-w="${i}"><i style="background:${w.color}"></i>${w.name}</span>`).join('');
+  wbox.innerHTML = (d.weights || []).map(w =>
+    `<span class="lg-item" data-n="${w.name}"><i style="background:${w.color}"></i>${w.name}</span>`).join('');
   $('#pfWeightChart').after(wbox);
   wbox.querySelectorAll('.lg-item').forEach(item => item.onclick = () => {
-    const ref = wRefs[+item.dataset.w];
-    ref.visible = !ref.visible;
-    try { ref.ls.applyOptions({ visible: ref.visible }); } catch (e) {}
-    item.classList.toggle('off', !ref.visible);
+    const n = item.dataset.n;
+    if (hiddenW.has(n)) hiddenW.delete(n); else hiddenW.add(n);
+    item.classList.toggle('off', hiddenW.has(n));
+    drawStack();
   });
 
   // 方案对比表
@@ -1068,8 +1137,11 @@ function renderAcctCurve(d) {
   const seen = new Map();
   times.forEach((t, i) => {
     const ts = toTs(t);
-    if (ts === null) return;
-    seen.set(ts, Number(vals[i] || 0));
+    const raw = vals[i];
+    const v = Number(raw);
+    // 缺值直接跳过，别用 0 顶替——否则曲线会砸到底部，画成一根竖线
+    if (ts === null || raw === null || raw === undefined || !isFinite(v)) return;
+    seen.set(ts, v);
   });
   Array.from(seen.keys()).sort((a, b) => a - b)
     .forEach(ts => pts.push({ time: ts, value: seen.get(ts) }));
