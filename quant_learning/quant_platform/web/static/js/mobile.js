@@ -12,6 +12,7 @@
 Object.assign(DICT.zh, {
   'm.more': '更多',
   'm.pull': '下拉刷新',
+  'm.logout': '退出登录',
   'm.release': '松开刷新',
   'm.refreshing': '刷新中…',
   'm.strategy': '策略',
@@ -49,6 +50,7 @@ Object.assign(DICT.zh, {
 Object.assign(DICT.en, {
   'm.more': 'More',
   'm.pull': 'Pull to refresh',
+  'm.logout': 'Sign out',
   'm.release': 'Release to refresh',
   'm.refreshing': 'Refreshing…',
   'm.strategy': 'Strategy',
@@ -249,10 +251,28 @@ function resizeCharts() {
   });
 }
 
+/* 公网模式（服务端开了登录鉴权）才显示「退出登录」按钮 */
+async function initAuthUi() {
+  let authed = false;
+  try {
+    const r = await fetch('/healthz', { cache: 'no-store' });
+    const d = await r.json();
+    authed = !!(d && d.auth);
+  } catch (e) { return; }
+  const btn = document.getElementById('mlogout');
+  if (!btn || !authed) return;
+  btn.style.display = '';
+  btn.onclick = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+    location.href = '/login';
+  };
+}
+
 /* ---------------- 启动 ---------------- */
 async function boot() {
   applyI18n();
   document.title = 'QuantLab';
+  initAuthUi();
   bindLangBtn();
   bindTabs();
   bindSheet();

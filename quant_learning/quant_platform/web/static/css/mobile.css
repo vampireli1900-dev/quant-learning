@@ -99,6 +99,15 @@ button{border:0; background:none; padding:0; cursor:pointer}
 }
 .mlang:active{transform:scale(.94); border-color:var(--accent); color:#fff}
 
+/* 退出登录（仅在公网鉴权开启时显示） */
+.mlogout{
+  width:32px; height:30px; display:flex; align-items:center; justify-content:center;
+  border-radius:9px; border:1px solid var(--border); background:var(--panel2);
+  color:var(--text-dim); padding:0; transition:all .18s var(--ease);
+}
+.mlogout svg{width:16px; height:16px}
+.mlogout:active{transform:scale(.94); border-color:var(--down); color:var(--down)}
+
 /* ---------- 下拉刷新 ---------- */
 .mpull{
   position:absolute; left:0; right:0; top:calc(env(safe-area-inset-top) + 54px);

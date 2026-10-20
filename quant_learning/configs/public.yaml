@@ -1,0 +1,54 @@
+# ============================================================
+# configs/public.yaml —— 公网访问配置（非敏感项，可提交）
+#
+# 敏感值（会话签名密钥 / 口令哈希）单独放在 configs/public.secret.yaml，
+# 由 `python -m quant_platform.cli set-password` 自动生成，已加入 .gitignore。
+#
+# 完整部署步骤见 docs/PUBLIC_DEPLOY.md
+# ============================================================
+public:
+  # ---- 总开关 ----
+  # 是否启用登录鉴权。false = 局域网直连模式（不加任何限制，跟以前一样）
+  enabled: true
+
+  # 登录用户名
+  username: quant
+
+  # ---- 会话 ----
+  # 普通登录有效期（小时）；勾「记住我」时用 remember_days
+  session_hours: 12
+  remember_days: 30
+
+  # 只在 HTTPS 下下发会话 Cookie。公网部署必须为 true；
+  # 如果你确实只能走明文 HTTP（不推荐），改成 false，否则登录页会登不上
+  secure_cookie: true
+
+  # 允许用 ?token=xxx 免密直连。登录后可用 /api/auth/token?days=30 生成。
+  # 注意：token 会出现在 URL 和浏览器历史里，不需要就关掉
+  allow_token_param: true
+
+  # ---- 网络 ----
+  # 可信反向代理 IP。只有来自这些地址的 X-Forwarded-For 才被采信，
+  # 否则任何人都能伪造 XFF 绕过限流
+  trusted_proxies:
+    - 127.0.0.1
+    - ::1
+
+  # 允许的 Host 头（留空 = 不校验）
+  # 建议填你的 DDNS 域名，例如 ["quant.duckdns.org"]，
+  # 能挡掉直接用 IP 或陌生域名扫到你服务的人
+  allowed_hosts: []
+
+  # ---- 暴露范围 ----
+  # 脱敏真实账户：净值 / 持仓 / 委托一律不返回，只留策略研究与行情。
+  # 如果你只想在路上看看策略表现，开这个最省心
+  mask_account: false
+
+  # 关闭自定义 SQL 查询接口 /api/db/query（只保留页面里用到的数据接口）
+  disable_sql_query: false
+
+  # ---- 滥用防护 ----
+  login_max_fail: 8        # 10 分钟内密码错误次数上限，超了锁 IP
+  lock_seconds: 900        # 锁定秒数（15 分钟）
+  api_per_min: 600         # 单 IP 每分钟 API 请求上限
+  audit: true              # 访问日志写 logs/public_access.log

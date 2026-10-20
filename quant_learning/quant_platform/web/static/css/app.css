@@ -283,6 +283,18 @@ table.tbl tbody tr{cursor:pointer}
 .lang-btn.on{background:var(--accent); color:#fff}
 .lang-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
 
+/* 退出登录（仅在公网鉴权开启时显示） */
+.logout-btn{
+  width:30px; height:30px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--border); border-radius:9px; background:var(--bg2);
+  color:var(--muted); cursor:pointer; padding:0;
+  transition:color .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease);
+}
+.logout-btn svg{width:16px; height:16px}
+.logout-btn:hover{color:var(--down); border-color:var(--down); background:rgba(224,82,79,.1)}
+.logout-btn:active{transform:scale(.94)}
+.logout-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
 /* ---------- 图例开关 ---------- */
 .lg-item{cursor:pointer; transition:opacity .18s var(--ease); user-select:none}
 .lg-item:hover{opacity:.8}

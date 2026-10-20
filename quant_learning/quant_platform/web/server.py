@@ -36,6 +36,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .security import (
+    install_security,
+    load_public_config,
+    mask_account_payload,
+)
+
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 PROJECT_ROOT = WEB_DIR.parent.parent
@@ -53,6 +59,27 @@ TTL = {
     "watchlist": 120,
     "account": 30,
 }
+
+
+def _pcfg():
+    """当前公网配置（由 security.install_security 挂到 app.state）。"""
+    return getattr(app.state, "public_cfg", None)
+
+
+def _mask(d):
+    """公网 + mask_account 开启时，把真实金额/持仓抹掉，并打上 masked 标记。"""
+    cfg = _pcfg()
+    if cfg and cfg.enabled and cfg.mask_account:
+        d = mask_account_payload(d)
+        if isinstance(d, dict):
+            d["masked"] = True
+        return d
+    return d
+
+
+def _sql_allowed() -> bool:
+    cfg = _pcfg()
+    return not (cfg and cfg.enabled and cfg.disable_sql_query)
 
 
 def _cached(key: str, ttl: float, fn):
@@ -589,7 +616,7 @@ def account():
         return {"ok": True, "account": acc,
                 "positions": [] if not len(pos)
                 else pos.to_dict(orient="records")}
-    return _cached("account", TTL["account"], _load)
+    return _mask(_cached("account", TTL["account"], _load))
 
 
 @app.get("/api/account/board")
@@ -610,7 +637,7 @@ def account_board_api(record: bool = True):
 
     board.setdefault("market_state", _market_state())
     board["server_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return board
+    return _mask(board)
 
 
 def _market_state() -> dict:
@@ -690,8 +717,10 @@ def db_query(q: SQLQuery):
     执行只读 SQL。
 
     安全：repository.assert_readonly 会拦截任何非 SELECT/WITH/EXPLAIN/PRAGMA
-    开头的语句以及多语句注入。
+    开头的语句以及多语句注入。公网模式下可用 public.disable_sql_query 整个关掉。
     """
+    if not _sql_allowed():
+        raise HTTPException(403, "自定义 SQL 查询已在公网模式下关闭")
     try:
         from ..db import run_sql
     except Exception as e:                                     # noqa: BLE001
@@ -754,6 +783,9 @@ def db_features():
 @app.get("/api/db/orders")
 def db_orders(limit: int = 100, symbol: Optional[str] = None):
     """委托记录。"""
+    cfg = _pcfg()
+    if cfg and cfg.enabled and cfg.mask_account:
+        return {"rows": [], "masked": True}
     try:
         from ..db import list_orders
         df = list_orders(limit=limit, symbol=symbol)
@@ -765,6 +797,9 @@ def db_orders(limit: int = 100, symbol: Optional[str] = None):
 @app.get("/api/db/account_curve")
 def db_account_curve(limit: int = 300):
     """账户净值快照序列。"""
+    cfg = _pcfg()
+    if cfg and cfg.enabled and cfg.mask_account:
+        return {"rows": [], "masked": True}
     try:
         from ..db import account_curve
         df = account_curve(limit=limit)
@@ -773,10 +808,54 @@ def db_account_curve(limit: int = 300):
         return {"rows": [], "reason": str(e)[:120]}
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8770, reload: bool = False):
+# ---------------------------------------------------------------------------
+# 公网安全层：登录鉴权 / 限流 / 安全头 / 审计
+# 是否生效由 configs/public.yaml 的 public.enabled 决定（--public 可强制开启）
+# ---------------------------------------------------------------------------
+PUBLIC_CFG = load_public_config()
+install_security(app, PUBLIC_CFG)
+
+
+def run_server(host: str = "127.0.0.1", port: int = 8770, reload: bool = False,
+               public: Optional[bool] = None,
+               ssl_certfile: Optional[str] = None, ssl_keyfile: Optional[str] = None):
+    """
+    public=None  跟随 configs/public.yaml
+    public=True  强制开启鉴权（缺失口令则拒绝启动，避免裸奔）
+    public=False 强制关闭鉴权（纯局域网）
+    """
     import uvicorn
+
+    cfg = getattr(app.state, "public_cfg", None) or PUBLIC_CFG
+    if public is not None:
+        cfg.enabled = bool(public)
+    if cfg.enabled and not cfg.ready:
+        raise SystemExit(
+            "公网鉴权已开启但未设置口令，拒绝启动（否则等于裸奔）。\n"
+            "  请先执行： python -m quant_platform.cli set-password"
+        )
+
+    allow = ",".join(cfg.trusted_proxies) if cfg.trusted_proxies else "127.0.0.1"
     print(f"QuantLab Web Terminal: http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    if cfg.enabled:
+        print(f"  鉴权：开启（用户 {cfg.username}）｜Secure Cookie={cfg.secure_cookie}｜"
+              f"限流 {cfg.api_per_min}/min")
+        if cfg.mask_account:
+            print("  账户脱敏：开启（真实净值/持仓/委托不可见）")
+        if cfg.disable_sql_query:
+            print("  自定义 SQL：已关闭")
+    else:
+        print("  鉴权：关闭（局域网模式）。如需公网访问请加 --public")
+    kw = {}
+    if ssl_certfile:                      # 不装 Caddy 时，uvicorn 自己也能跑 HTTPS
+        kw["ssl_certfile"] = ssl_certfile
+        kw["ssl_keyfile"] = ssl_keyfile or ssl_certfile
+        print(f"  HTTPS：证书 {ssl_certfile}")
+    uvicorn.run(
+        app, host=host, port=port, log_level="warning",
+        proxy_headers=True, forwarded_allow_ips=allow,
+        server_header=False, date_header=False, **kw,
+    )
 
 
 if __name__ == "__main__":
@@ -784,5 +863,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8770)
+    ap.add_argument("--public", action="store_true", help="强制开启公网鉴权")
+    ap.add_argument("--no-auth", action="store_true", help="强制关闭鉴权（局域网）")
     a = ap.parse_args()
-    run_server(a.host, a.port)
+    run_server(a.host, a.port, public=True if a.public else (False if a.no_auth else None))

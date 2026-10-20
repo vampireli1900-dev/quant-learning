@@ -104,6 +104,10 @@ quant_learning/
 │   │   ├── broker.py             # 实盘接口（默认 dry-run + 风控限额）
 │   │   ├── paper.py              # 模拟盘 paper trading 守护进程
 │   │   └── dashboard.py          # 账户实时看板聚合（持仓/余额/估值）
+│   ├── web/
+│   │   ├── server.py             # FastAPI：只读 API + 静态资源 + /m
+│   │   ├── security.py           # 公网安全层（登录鉴权/限流/锁定/安全头/审计）
+│   │   └── static/               # 桌面 index.html + 移动 mobile.html + PWA 图标
 │   ├── db/                       # SQL 数据库持久层
 │   │   ├── schema.py             # 14 张表 ORM 模型（五层）
 │   │   ├── session.py            # engine / session_scope / init_db
@@ -115,12 +119,15 @@ quant_learning/
 │   ├── demo.yaml                 # 冒烟测试
 │   ├── main_compare.yaml         # 主对比实验
 │   ├── walkforward_validation.yaml
-│   └── db_check.yaml             # 数据库落库验证
+│   ├── db_check.yaml             # 数据库落库验证
+│   └── public.yaml               # 公网访问配置（密钥在 public.secret.yaml，已 gitignore）
 ├── scripts/prefetch_data.py      # 预拉数据
 ├── scripts/paper_ops.py          # 模拟盘真实委托运营
 ├── scripts/ml_from_db.py         # 从数据库读训练集训练模型
 ├── scripts/account_daemon.py     # 账户快照常驻采样（攒净值曲线）
+├── deploy/                       # 公网部署资产（Caddyfile / DDNS / 一键启停脚本）
 ├── docs/schema.sql               # 建表 DDL（db-dump 生成，可直接交付）
+├── docs/PUBLIC_DEPLOY.md         # 公网部署指南
 ├── data/                         # SQLite 数据库（.gitignore 已排除）
 ├── data_cache/                   # 数据缓存（按 数据源_标的_周期_时长 命名）
 ├── results/                      # 实验结果（CSV + HTML 报告）
@@ -301,9 +308,63 @@ python -m quant_platform.cli web --host 0.0.0.0 --port 8772
 #   移动版： http://192.168.x.x:8772/m
 ```
 
+### 公网访问的部署准备（鉴权 / HTTPS / DDNS）
+
+在家以外的地方也能打开，走的是「路由器端口转发 + DDNS + Caddy 自动 HTTPS」，
+安全层已内置在应用里（零新增依赖）：
+
+- **登录鉴权**：用户名 + 密码 → HMAC 签名会话 Cookie（HttpOnly / SameSite=Lax /
+  HTTPS 下自动 Secure）。未登录访问页面跳 `/login`，访问 `/api/*` 返回 401
+- **口令存储**：pbkdf2-sha256 20 万轮，只存哈希（`configs/public.secret.yaml`，已 gitignore）
+- **暴力破解防护**：10 分钟内错 8 次锁该 IP 15 分钟；单 IP 600 次/分钟限流
+- **会话吊销**：顶栏登出按钮（公网模式下自动出现）登出即拉黑当前令牌
+- **安全响应头**：CSP / HSTS / X-Frame-Options / nosniff 等，并关闭 Server 头
+- **审计日志**：登录成功/失败/锁定写 `logs/public_access.log`
+- **可选脱敏**：`mask_account: true` 后公网看不到净值/股数/成本，只留标的与权重；
+  `disable_sql_query: true` 可整体关闭自定义 SQL 接口
+- **直链令牌**：登录后可生成 `?token=` 直链（`/api/auth/token?days=30`），
+  不想用可配置关闭
+
+```bash
+# 一次性准备
+python -m quant_platform.cli set-password        # 设置口令（交互式，不回显）
+python -m quant_platform.cli public-check        # 部署自检：凭据/端口/反代/公网 IP
+
+# 日常启动（应用只听 127.0.0.1，由 Caddy 反代并终止 HTTPS）
+deploy\start_public.bat                          # 一键起应用 + Caddy
+deploy\stop_public.bat                           # 一键停
+
+# HTTPS / DDNS 一次性安装
+powershell -ExecutionPolicy Bypass -File deploy\setup_caddy.ps1            # 下载 Caddy
+powershell -ExecutionPolicy Bypass -File deploy\setup_caddy.ps1 -WithDuckDns  # 80 端口被封时用（DNS-01）
+python deploy/ddns.py --provider duckdns --domain <名> --token <令牌> --install-task
+```
+
+路由器里做两条端口转发：`80 → 本机:80`、`443 → 本机:443`（HTTP 只用于跳转与证书验证）。
+**千万别把 8772 直接转发出去** —— 没有应用层 HTTPS，密码就是明文。
+
+完整步骤、CGNAT 判断、排查表见 **`docs/PUBLIC_DEPLOY.md`**。
+
 ---
 
-## 七、数据库系统（SQL 持久化）
+## 七、公网部署安全层与部署文件
+
+| 文件 | 作用 |
+|---|---|
+| `quant_platform/web/security.py` | 鉴权 / 限流 / 锁定 / 会话吊销 / 安全头 / 审计 / 登录页 |
+| `configs/public.yaml` | 公网配置（非敏感，可提交；每项带注释） |
+| `configs/public.secret.yaml` | 密钥与口令哈希（自动生成，已 gitignore） |
+| `deploy/Caddyfile` | HTTPS 反代（Let's Encrypt 自动签发，支持 HTTP-01 / DNS-01 两种模式） |
+| `deploy/Caddyfile.selfsigned` | 没有域名时的自签应急方案 |
+| `deploy/setup_caddy.ps1` | 下载 Caddy（可选带 duckdns 插件） |
+| `deploy/ddns.py` | 动态 DNS 更新（duckdns / 通用 URL），可注册计划任务 |
+| `deploy/start_public.bat` / `stop_public.bat` | 一键启停（应用只听回环 + Caddy） |
+| `deploy/install_autostart.ps1` | 开机自启计划任务（可 `-Uninstall`） |
+| `docs/PUBLIC_DEPLOY.md` | 完整部署指南（架构图 / 五步走 / 排查表） |
+
+---
+
+## 八、数据库系统（SQL 持久化）
 
 ### 为什么需要
 
@@ -445,7 +506,7 @@ r = run_sql("SELECT strategy, AVG(sharpe) s FROM backtest_runs r "
 
 ---
 
-## 八、环境与权限状态
+## 九、环境与权限状态
 
 详见 `_env_check/ENV_REPORT.md`。要点：
 
@@ -457,7 +518,7 @@ r = run_sql("SELECT strategy, AVG(sharpe) s FROM backtest_runs r "
 
 ---
 
-## 九、原始教学代码
+## 十、原始教学代码
 
 `data.py` / `indicators.py` / `strategy.py` / `backtest.py` / `main.py` 保留为入门教学版本
 （合成数据、5 个文件讲清一条流水线），建议先读它们理解"回测的坑"，再进入平台代码。

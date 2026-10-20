@@ -38,6 +38,7 @@ const DICT = {
     'top.clock.closed': '休市',
     'top.symbol.ph': '输入代码…',
     'top.lang': '语言',
+    'top.logout': '退出登录',
 
     'nav.chart': '图表',
     'nav.equity': '净值对比',
@@ -257,6 +258,7 @@ const DICT = {
     'top.clock.closed': 'CLOSED',
     'top.symbol.ph': 'Enter symbol…',
     'top.lang': 'Language',
+    'top.logout': 'Sign out',
 
     'nav.chart': 'Charts',
     'nav.equity': 'Equity',

@@ -118,8 +118,27 @@ function restoreSession() {
   }
 }
 
+/* 公网模式（服务端开了登录鉴权）才显示「退出登录」按钮。
+   局域网裸跑时 /healthz 返回 auth:false，按钮保持隐藏。 */
+async function initAuthUi() {
+  let authed = false;
+  try {
+    const r = await fetch('/healthz', { cache: 'no-store' });
+    const d = await r.json();
+    authed = !!(d && d.auth);
+  } catch (e) { return; }
+  const btn = document.getElementById('logoutBtn');
+  if (!btn || !authed) return;
+  btn.style.display = '';
+  btn.onclick = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+    location.href = '/login';
+  };
+}
+
 async function boot() {
   applyI18n();
+  initAuthUi();
   bindLang();
 
   const meta = await api('/api/bootstrap');

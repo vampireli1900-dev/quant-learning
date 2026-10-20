@@ -556,7 +556,137 @@ def cmd_web(args):
     else:
         print(f"  移动版： http://{args.host}:{args.port}/m")
     print("（Ctrl+C 停止）")
-    run_server(host=args.host, port=args.port)
+    pub = True if getattr(args, "public", False) else (
+        False if getattr(args, "no_auth", False) else None)
+    run_server(host=args.host, port=args.port, public=pub)
+
+
+def cmd_set_password(args):
+    """设置公网访问口令，并把哈希写进 configs/public.secret.yaml。"""
+    import getpass
+    import re
+    from .web.security import load_public_config, write_password, PUBLIC_CFG
+
+    cfg = load_public_config()
+    if args.password:
+        pw = args.password
+    else:
+        pw = getpass.getpass("设置公网访问密码（输入不回显）：")
+        if pw != getpass.getpass("再输一次： "):
+            raise SystemExit("两次输入不一致，已取消。")
+    if len(pw) < 8:
+        raise SystemExit("密码太短，至少 8 位（这是公网入口，别用 123456）。")
+    write_password(cfg, pw)
+    print(f"✓ 密码已更新 → configs/public.secret.yaml（pbkdf2-sha256，仅存哈希）")
+
+    if args.username:
+        _set_yaml(PUBLIC_CFG, "username", args.username)
+        print(f"✓ 用户名 → {args.username}")
+
+    enable = args.enable
+    if not enable and not args.no_enable and sys.stdin.isatty():
+        enable = input("是否现在开启公网鉴权（public.enabled=true）？[Y/n] ").strip().lower() in ("", "y", "yes")
+    if enable:
+        _set_yaml(PUBLIC_CFG, "enabled", "true")
+        print("✓ 已开启公网鉴权。下次启动： python -m quant_platform.cli web --public")
+    else:
+        print("  鉴权开关未改动。开启方式：把 configs/public.yaml 的 enabled 改成 true，"
+              "或启动时加 --public")
+
+
+def _set_yaml(path, key: str, value: str) -> None:
+    """就地改 public.yaml 里 public: 块下的某个键，保留注释与格式。"""
+    import re as _re
+    try:
+        txt = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return
+    out, inblk = [], False
+    for ln in txt.splitlines():
+        if _re.match(r"^public:\s*$", ln):
+            inblk = True
+        if inblk and _re.match(rf"^\s+{key}:\s*\S*", ln):
+            indent = ln[: len(ln) - len(ln.lstrip())]
+            out.append(f"{indent}{key}: {value}")
+            continue
+        out.append(ln)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def cmd_public_check(args):
+    """公网部署自检：口令 / 配置 / 监听地址 / 反代 / 防火墙 / 公网可达性。"""
+    import socket
+    from .web.security import load_public_config, PUBLIC_CFG, SECRET_CFG
+
+    cfg = load_public_config()
+    ok = lambda b: "✓" if b else "✗"
+    print("=" * 62)
+    print(" 公网部署自检")
+    print("=" * 62)
+
+    print(f"\n[1] 凭据")
+    print(f"  {ok(cfg.password_hash)} 密码已设置（configs/public.secret.yaml）")
+    print(f"  {ok(cfg.secret)} 会话签名密钥")
+    print(f"  {ok(cfg.enabled)} public.enabled = {cfg.enabled}"
+          f"{'' if cfg.enabled else '   ← 鉴权未开，先用 --public 或改配置'}")
+    print(f"     用户名：{cfg.username}｜会话 {cfg.session_ttl // 3600}h｜"
+          f"Secure Cookie={cfg.secure_cookie}")
+
+    print(f"\n[2] 暴露范围")
+    print(f"  账户脱敏      : {'开启（外部看不到真实净值/持仓）' if cfg.mask_account else '关闭（可看全部）'}")
+    print(f"  自定义 SQL    : {'已关闭' if cfg.disable_sql_query else '开放（只读守卫生效）'}")
+    print(f"  Host 白名单   : {cfg.allowed_hosts or '未限制（建议填 DDNS 域名）'}")
+    print(f"  ?token= 直链  : {'允许' if cfg.allow_token_param else '禁止'}")
+
+    print(f"\n[3] 本机监听")
+    for p in (8770, 8772, 80, 443):
+        s = socket.socket()
+        s.settimeout(0.4)
+        r = s.connect_ex(("127.0.0.1", p))
+        s.close()
+        tag = {8770: "应用（默认端口）", 8772: "应用（当前端口）",
+               80: "HTTP（ACME/跳转）", 443: "HTTPS（反代）"}[p]
+        print(f"  {ok(r == 0)} {p:>5}  {tag}")
+
+    print(f"\n[4] 局域网地址（路由器端口转发要填这个）")
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan = s.getsockname()[0]
+        s.close()
+    except OSError:
+        lan = "<未知>"
+    print(f"  内网 IP：{lan}")
+
+    print(f"\n[5] 公网出口（路由器 WAN 口应与它一致；不一致说明是多层 NAT，转发无效）")
+    pub_ip = None
+    try:
+        import urllib.request
+        with urllib.request.urlopen("https://api.ipify.org", timeout=6) as r:
+            pub_ip = r.read().decode().strip()
+    except Exception as e:                                     # noqa: BLE001
+        print(f"  ✗ 探测失败：{type(e).__name__}（可能没外网；不影响局域网使用）")
+    if pub_ip:
+        print(f"  公网 IP：{pub_ip}")
+        print(f"  家用宽带多为动态 IP → 需要 DDNS，见 docs/PUBLIC_DEPLOY.md")
+
+    print(f"\n[6] 本机服务健康")
+    hz = None
+    try:
+        import urllib.request, json as _json
+        with urllib.request.urlopen(f"http://127.0.0.1:{args.port}/healthz", timeout=4) as r:
+            hz = _json.loads(r.read().decode())
+    except Exception as e:                                     # noqa: BLE001
+        print(f"  ✗ 未检测到服务（{type(e).__name__}）。先启动： "
+              f"python -m quant_platform.cli web --public --host 127.0.0.1 --port {args.port}")
+    if hz:
+        print(f"  ✓ /healthz → {hz}")
+        print(f"  鉴权状态 auth={hz.get('auth')}"
+              f"{'' if hz.get('auth') else '   ← 服务没开鉴权，公网别这么跑'}")
+
+    print("\n" + "=" * 62)
+    print(" 下一步：docs/PUBLIC_DEPLOY.md")
+    print("=" * 62)
 
 
 def cmd_paper(args):
@@ -775,7 +905,22 @@ def build_parser() -> argparse.ArgumentParser:
     w = sub.add_parser("web", help="启动 Web 展示终端")
     w.add_argument("--host", default="127.0.0.1")
     w.add_argument("--port", type=int, default=8770)
+    w.add_argument("--public", action="store_true",
+                   help="公网模式：强制开启登录鉴权（需先 set-password）")
+    w.add_argument("--no-auth", action="store_true",
+                   help="强制关闭鉴权（纯局域网）")
     w.set_defaults(func=cmd_web)
+
+    sp = sub.add_parser("set-password", help="设置公网访问口令（存哈希，不存明文）")
+    sp.add_argument("--password", default=None, help="直接指定（会留在 shell 历史里，慎用）")
+    sp.add_argument("--username", default=None, help="同时修改登录用户名")
+    sp.add_argument("--enable", action="store_true", help="同时把 public.enabled 置为 true")
+    sp.add_argument("--no-enable", action="store_true", help="不改 enabled 开关")
+    sp.set_defaults(func=cmd_set_password)
+
+    pc = sub.add_parser("public-check", help="公网部署自检（凭据/端口/反代/公网 IP）")
+    pc.add_argument("--port", type=int, default=8772)
+    pc.set_defaults(func=cmd_public_check)
 
     pp = sub.add_parser("paper", help="模拟盘自动交易监控（默认 dry-run）")
     pp.add_argument("--name", default=None)

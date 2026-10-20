@@ -1,0 +1,26 @@
+# ============================================================
+# deploy/Caddyfile.selfsigned —— 没有域名时的应急方案
+#
+# Caddy 用内置 CA 自签一张证书，HTTPS 能用，但浏览器会提示「证书不受信任」，
+# 手机上点「高级 → 继续访问」即可。功能完整，就是不干净。
+#
+# 只建议在临时使用 / 还没申请域名时用。长期还是走正式的 Caddyfile。
+# ============================================================
+
+{
+	email you@example.com
+}
+
+:443 {
+	tls internal
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8772
+}

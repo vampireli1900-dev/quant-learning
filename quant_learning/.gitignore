@@ -29,3 +29,10 @@ logs/
 .DS_Store
 Thumbs.db
 .env
+
+# 公网部署的敏感值（会话密钥 / 口令哈希）
+configs/public.secret.yaml
+deploy/*.key
+deploy/*.pem
+deploy/caddy.exe
+deploy/.caddy-token
