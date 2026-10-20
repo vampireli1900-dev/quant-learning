@@ -661,6 +661,7 @@ def cmd_public_check(args):
     print(f"\n[5] 穿透通道（没有公网 IP 时靠它）")
     import shutil
     import subprocess
+    ts_ip = None          # 供 [7] 探测服务用（服务可能只绑了这个地址）
     ts = shutil.which("tailscale")
     if not ts:
         cand = Path(r"C:\Program Files\Tailscale\tailscale.exe")
@@ -680,6 +681,7 @@ def cmd_public_check(args):
             ip = ips[0] if ips else None
             name = (me.get("DNSName") or "").rstrip(".")
             if ip:
+                ts_ip = ip
                 print(f"  ✓ 已登录：{ip}" + (f"  （{name}）" if name else ""))
                 print(f"     手机访问： http://{ip}:8772/m")
                 print(f"     启动方式： deploy\\start_tailscale.bat（只绑 {ip}，"
@@ -704,18 +706,34 @@ def cmd_public_check(args):
         print(f"  家用宽带多为动态 IP → 需要 DDNS，见 docs/PUBLIC_DEPLOY.md")
 
     print(f"\n[7] 本机服务健康")
+    # 服务可能只绑 Tailscale IP（start_tailscale.bat 的默认行为），
+    # 这时探 127.0.0.1 必然失败 —— 要按 回环 → 局域网 → Tailscale 依次试。
+    probes = [("回环", "127.0.0.1"), ("局域网", lan)]
+    if ts_ip:
+        probes.append(("Tailscale", ts_ip))
     hz = None
-    try:
-        import urllib.request, json as _json
-        with urllib.request.urlopen(f"http://127.0.0.1:{args.port}/healthz", timeout=4) as r:
-            hz = _json.loads(r.read().decode())
-    except Exception as e:                                     # noqa: BLE001
-        print(f"  ✗ 未检测到服务（{type(e).__name__}）。先启动： "
-              f"python -m quant_platform.cli web --public --host 127.0.0.1 --port {args.port}")
+    hit = None
+    err = None
+    import urllib.request as _u, json as _json
+    for label, host in probes:
+        try:
+            with _u.urlopen(f"http://{host}:{args.port}/healthz", timeout=4) as r:
+                hz = _json.loads(r.read().decode())
+            hit = (label, host)
+            break
+        except Exception as e:                                 # noqa: BLE001
+            err = f"{label}({host}) {type(e).__name__}"
     if hz:
+        print(f"  ✓ 已在 {hit[0]}地址 {hit[1]}:{args.port} 上探到服务")
         print(f"  ✓ /healthz → {hz}")
         print(f"  鉴权状态 auth={hz.get('auth')}"
               f"{'' if hz.get('auth') else '   ← 服务没开鉴权，公网别这么跑'}")
+        if hit[0] == "Tailscale":
+            print(f"  绑定方式：只绑 Tailscale 网卡 → 外网与家里其他设备都连不上（最安全）")
+    else:
+        print(f"  ✗ 未检测到服务（最后尝试 {err}）。先启动： "
+              f"deploy\\start_tailscale.bat  或  "
+              f"python -m quant_platform.cli web --public --host 127.0.0.1 --port {args.port}")
 
     print("\n" + "=" * 62)
     print(" 下一步：docs/PUBLIC_DEPLOY.md")

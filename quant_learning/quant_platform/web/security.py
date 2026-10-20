@@ -632,30 +632,33 @@ LOGIN_HTML = """<!DOCTYPE html>
 <script>
 const S={zh:{title:'登录',sub:'请输入账号密码以访问终端',user:'用户名',pass:'密码',rm:'记住我（30 天）',
   go:'登 录',foot:'仅本人使用 · 连续输错会临时锁定 IP<br>建议通过 HTTPS 域名访问',
+  footTun:'仅本人使用 · 连续输错会临时锁定 IP<br>Tailscale 隧道已端到端加密',
   e1:'用户名或密码错误',e2:'尝试过于频繁，请稍后再试',e3:'网络错误，请重试',
   w:'当前通过 <b>HTTP</b> 明文访问，密码可能被网络中的其他人截获。强烈建议配置 HTTPS。'},
   en:{title:'Sign in',sub:'Enter your credentials to open the terminal',user:'Username',pass:'Password',
   rm:'Remember me (30 days)',go:'Sign in',foot:'Personal use only · repeated failures lock the IP<br>Always prefer HTTPS',
+  footTun:'Personal use only · repeated failures lock the IP<br>End-to-end encrypted via Tailscale',
   e1:'Wrong username or password',e2:'Too many attempts, try again later',e3:'Network error, please retry',
   w:'You are on plain <b>HTTP</b> — your password can be intercepted. Please enable HTTPS.'}};
 let lang=(localStorage.getItem('qp_lang')||'zh');
+// Tailscale 的 100.64.0.0/10 与 *.ts.net 走的是 WireGuard 加密隧道，
+// 虽然浏览器显示 http://，但流量本身已是端到端加密，不该报警、footer 也不该劝上 HTTPS
+var _h=location.hostname;
+var _tun=/^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(_h)||/\\.ts\\.net$/.test(_h);
 function apply(){const d=S[lang]||S.zh;
  document.getElementById('tTitle').textContent=d.title;document.getElementById('tSub').textContent=d.sub;
  document.getElementById('tUser').textContent=d.user;document.getElementById('tPass').textContent=d.pass;
  document.getElementById('tRm').textContent=d.rm;document.getElementById('go').textContent=d.go;
- document.getElementById('tFoot').innerHTML=d.foot;document.getElementById('lang').textContent=lang==='zh'?'EN':'中';
+ document.getElementById('tFoot').innerHTML=_tun?d.footTun:d.foot;
+ document.getElementById('lang').textContent=lang==='zh'?'EN':'中';
  document.documentElement.lang=lang==='zh'?'zh-CN':'en';
  const e=document.getElementById('err'); if(e.dataset.k) e.textContent=d[e.dataset.k];}
 document.getElementById('lang').onclick=()=>{lang=lang==='zh'?'en':'zh';localStorage.setItem('qp_lang',lang);apply();};
 apply();
-// Tailscale 的 100.64.0.0/10 与 *.ts.net 走的是 WireGuard 加密隧道，
-// 虽然浏览器显示 http://，但流量本身已是端到端加密，不该报警
-var _h=location.hostname;
-var _tun=/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(_h)||/\.ts\.net$/.test(_h);
 if(location.protocol==='http:'&&_h!=='127.0.0.1'&&_h!=='localhost'&&!_tun){
   const w=document.getElementById('warn');w.innerHTML=(S[lang]||S.zh).w;w.classList.add('on');}
 const next=new URLSearchParams(location.search).get('next')||'/';
-document.getElementById('f').onsubmit=async(ev=>{ev.preventDefault();
+document.getElementById('f').onsubmit=async ev=>{ev.preventDefault();
   const b=document.getElementById('go'),e=document.getElementById('err');
   b.disabled=true;b.textContent='...';
   try{const r=await fetch('/api/auth/login?next='+encodeURIComponent(next),{method:'POST',headers:{'Content-Type':'application/json'},
@@ -666,7 +669,7 @@ document.getElementById('f').onsubmit=async(ev=>{ev.preventDefault();
    else{e.dataset.k=r.status===429?'e2':'e1';e.textContent=(S[lang]||S.zh)[e.dataset.k]||d.detail||'error';
         e.classList.add('on');b.disabled=false;b.textContent=(S[lang]||S.zh).go;}
   }catch(err){e.dataset.k='e3';e.textContent=(S[lang]||S.zh).e3;e.classList.add('on');
-   b.disabled=false;b.textContent=(S[lang]||S.zh).go;}});
+   b.disabled=false;b.textContent=(S[lang]||S.zh).go;}};
 </script>
 </body>
 </html>
