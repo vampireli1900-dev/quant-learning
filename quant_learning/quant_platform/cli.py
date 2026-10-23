@@ -638,39 +638,30 @@ def cmd_public_check(args):
     print(f"  Host 白名单   : {cfg.allowed_hosts or '未限制（建议填 DDNS 域名）'}")
     print(f"  ?token= 直链  : {'允许' if cfg.allow_token_param else '禁止'}")
 
-    print(f"\n[3] 本机监听")
-    for p in (8770, 8772, 80, 443):
-        s = socket.socket()
-        s.settimeout(0.4)
-        r = s.connect_ex(("127.0.0.1", p))
-        s.close()
-        tag = {8770: "应用（默认端口）", 8772: "应用（当前端口）",
-               80: "HTTP（ACME/跳转）", 443: "HTTPS（反代）"}[p]
-        print(f"  {ok(r == 0)} {p:>5}  {tag}")
-
-    print(f"\n[4] 局域网地址（路由器端口转发要填这个）")
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        lan = s.getsockname()[0]
-        s.close()
-    except OSError:
-        lan = "<未知>"
-    print(f"  内网 IP：{lan}")
-
-    print(f"\n[5] 穿透通道（没有公网 IP 时靠它）")
+    # ---- 先把可能用到的地址准备出来 ----
+    # 服务若只绑 Tailscale 网卡（start_tailscale.bat 的默认行为），
+    # 只探 127.0.0.1 会全部误报成「没监听」。
     import shutil
     import subprocess
-    ts_ip = None          # 供 [7] 探测服务用（服务可能只绑了这个地址）
-    ts = shutil.which("tailscale")
-    if not ts:
-        cand = Path(r"C:\Program Files\Tailscale\tailscale.exe")
-        ts = str(cand) if cand.exists() else None
-    if not ts:
-        print("  ✗ Tailscale 未安装")
-        print("     安装： powershell -ExecutionPolicy Bypass -File deploy\\tailscale_setup.ps1")
-    else:
-        print(f"  ✓ Tailscale：{ts}")
+
+    def _lan_ip():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except OSError:
+            return "<未知>"
+
+    def _tailscale_status():
+        """返回 (exe, ip, name, peers, err)。未安装/未登录时 ip 为 None。"""
+        ts = shutil.which("tailscale")
+        if not ts:
+            cand = Path(r"C:\Program Files\Tailscale\tailscale.exe")
+            ts = str(cand) if cand.exists() else None
+        if not ts:
+            return None, None, "", {}, None
         try:
             import json as _j
             r = subprocess.run([ts, "status", "--json"], capture_output=True,
@@ -678,31 +669,67 @@ def cmd_public_check(args):
             st = _j.loads(r.stdout or "{}")
             me = st.get("Self") or {}
             ips = me.get("TailscaleIPs") or []
-            ip = ips[0] if ips else None
-            name = (me.get("DNSName") or "").rstrip(".")
-            peers = st.get("Peer") or {}
-            if ip:
-                ts_ip = ip
-                print(f"  ✓ 已登录：{ip}" + (f"  （{name}）" if name else ""))
-                print(f"     手机访问： http://{ip}:8772/m")
-                print(f"     启动方式： deploy\\start_tailscale.bat（只绑 {ip}，"
-                      f"外网和家里其他设备都摸不到）")
-            else:
-                print("  ✗ 未登录 → 执行 tailscale up，打开它给的链接完成授权")
-            # 只有自己一台设备 = 手机还没加入，这是「手机打不开」最常见的原因
-            if not peers:
-                print("  ✗ tailnet 里只有本机一台设备 —— 手机还没加入，必然打不开")
-                print("     处理：手机装 Tailscale App，用【和本机相同的账号】登录，开 VPN 开关")
-                print("     核对设备列表： https://login.tailscale.com/admin/machines")
-            else:
-                print(f"  ✓ 已连接设备 {len(peers)} 台：")
-                for _p in peers.values():
-                    _ips = _p.get("TailscaleIPs") or []
-                    _on = "在线" if _p.get("Online") else "离线"
-                    print(f"     - {_p.get('HostName', '?')}  {(_ips or ['?'])[0]}  {_on}"
-                          f"  ({_p.get('OS', '?')})")
+            return (ts, ips[0] if ips else None,
+                    (me.get("DNSName") or "").rstrip("."),
+                    st.get("Peer") or {}, None)
         except Exception as e:                                 # noqa: BLE001
-            print(f"  ? 状态读取失败：{type(e).__name__}")
+            return ts, None, "", {}, type(e).__name__
+
+    lan = _lan_ip()
+    ts, ts_ip, ts_name, ts_peers, ts_err = _tailscale_status()
+    # 探测顺序：回环 → 局域网 → Tailscale
+    addr_chain = [(lb, h) for lb, h in (("回环", "127.0.0.1"), ("局域网", lan),
+                                        ("Tailscale", ts_ip)) if h and h != "<未知>"]
+
+    print(f"\n[3] 本机监听")
+    for p in (8770, 8772, 80, 443):
+        tag = {8770: "应用（默认端口）", 8772: "应用（当前端口）",
+               80: "HTTP（ACME/跳转）", 443: "HTTPS（反代）"}[p]
+        hit_at = None
+        for _lbl, _h in addr_chain:
+            s = socket.socket()
+            s.settimeout(0.4)
+            r = s.connect_ex((_h, p))
+            s.close()
+            if r == 0:
+                hit_at = (_lbl, _h)
+                break
+        if hit_at:
+            print(f"  ✓ {p:>5}  {tag}   （绑在 {hit_at[1]}，{hit_at[0]}地址可达）")
+        else:
+            print(f"  ✗ {p:>5}  {tag}")
+
+    print(f"\n[4] 局域网地址（路由器端口转发要填这个）")
+    print(f"  内网 IP：{lan}")
+
+    print(f"\n[5] 穿透通道（没有公网 IP 时靠它）")
+    if not ts:
+        print("  ✗ Tailscale 未安装")
+        print("     安装： powershell -ExecutionPolicy Bypass -File deploy\\tailscale_setup.ps1")
+    elif ts_err:
+        print(f"  ✓ Tailscale：{ts}")
+        print(f"  ? 状态读取失败：{ts_err}")
+    else:
+        print(f"  ✓ Tailscale：{ts}")
+        if ts_ip:
+            print(f"  ✓ 已登录：{ts_ip}" + (f"  （{ts_name}）" if ts_name else ""))
+            print(f"     手机访问： http://{ts_ip}:8772/m")
+            print(f"     启动方式： deploy\\start_tailscale.bat（只绑 {ts_ip}，"
+                  f"外网和家里其他设备都摸不到）")
+        else:
+            print("  ✗ 未登录 → 执行 tailscale up，打开它给的链接完成授权")
+        # 只有自己一台设备 = 手机还没加入，这是「手机打不开」最常见的原因
+        if not ts_peers:
+            print("  ✗ tailnet 里只有本机一台设备 —— 手机还没加入，必然打不开")
+            print("     处理：手机装 Tailscale App，用【和本机相同的账号】登录，开 VPN 开关")
+            print("     核对设备列表： https://login.tailscale.com/admin/machines")
+        else:
+            print(f"  ✓ 已连接设备 {len(ts_peers)} 台：")
+            for _p in ts_peers.values():
+                _ips = _p.get("TailscaleIPs") or []
+                _on = "在线" if _p.get("Online") else "离线"
+                print(f"     - {_p.get('HostName', '?')}  {(_ips or ['?'])[0]}  {_on}"
+                      f"  ({_p.get('OS', '?')})")
     cf = shutil.which("cloudflared")
     print(f"  {'✓' if cf else '—'} Cloudflare Tunnel：{cf or '未安装（Tailscale 够用的话不用管）'}")
 
